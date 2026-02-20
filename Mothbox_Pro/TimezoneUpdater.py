@@ -1,9 +1,12 @@
+#!/usr/bin/env python3
+
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime
 from zoneinfo import ZoneInfo
 from pathlib import Path
 
 CONTROL_FILE = Path("/boot/firmware/mothbox_custom/system/controls.txt")
+ZONEINFO_DIR = Path("/usr/share/zoneinfo")
 
 def read_controls(filepath):
     controls = {}
@@ -20,48 +23,56 @@ def write_controls(filepath, controls):
             f.write(f"{k}={v}\n")
 
 def get_current_timezone():
-    result = subprocess.check_output(
-        ["timedatectl", "show", "-p", "Timezone", "--value"],
-        text=True
-    )
-    return result.strip()
+    tz_file = Path("/etc/timezone")
+    if tz_file.exists():
+        return tz_file.read_text().strip()
+    return "UTC"
 
 def set_system_timezone(tz_name):
+    zoneinfo_path = ZONEINFO_DIR / tz_name
+
+    if not zoneinfo_path.exists():
+        raise ValueError(f"Invalid timezone: {tz_name}")
+
+    # Update /etc/localtime symlink
     subprocess.run(
-        ["timedatectl", "set-timezone", tz_name],
+        ["sudo", "ln", "-sf", str(zoneinfo_path), "/etc/localtime"],
         check=True
     )
+
+    # Update /etc/timezone (Debian convention)
+    Path("/etc/timezone").write_text(tz_name + "\n")
 
 def get_utc_offset_hours(tz_name):
     tz = ZoneInfo(tz_name)
     now = datetime.now(tz)
     offset_seconds = now.utcoffset().total_seconds()
-    #return float(offset_seconds / 3600) # Cannot be INT because there are fractional timezones
     return round(offset_seconds / 3600, 3)
+
 def main():
     if not CONTROL_FILE.exists():
-        print("Couldn't find control file in Timezoneupdater")
+        print("TimezoneUpdater: controls.txt not found")
         return
 
     controls = read_controls(CONTROL_FILE)
 
     if "timezone" not in controls:
-        print("no timezone info in controls.txt")
+        print("TimezoneUpdater: No timezone field in controls.txt")
         return
 
-    desired_tz = controls["timezone"]
+    desired_tz = controls["timezone"].strip()
     current_tz = get_current_timezone()
 
     if desired_tz != current_tz:
-        print(f"Updating timezone: {current_tz} → {desired_tz}")
+        print(f"TimezoneUpdater: Updating timezone {current_tz} → {desired_tz}")
         set_system_timezone(desired_tz)
 
     utc_offset = get_utc_offset_hours(desired_tz)
-    print(get_current_timezone())
-    print(utc_offset)
     controls["UTCoff"] = str(utc_offset)
 
     write_controls(CONTROL_FILE, controls)
+
+    print(f"TimezoneUpdater: Active TZ={desired_tz}, UTC offset={utc_offset}")
 
 if __name__ == "__main__":
     main()
