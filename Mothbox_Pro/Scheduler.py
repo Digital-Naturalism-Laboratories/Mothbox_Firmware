@@ -338,10 +338,14 @@ def atomic_write(path, content):
     os.replace(tmp, path)
 
 def atomic_update_kv(path, key, value):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
     lines = []
     if os.path.exists(path):
         with open(path, "r") as f:
-            lines = f.readlines()
+            for line in f:
+                if "=" in line:
+                    lines.append(line)
 
     found = False
     for i, line in enumerate(lines):
@@ -353,8 +357,6 @@ def atomic_update_kv(path, key, value):
         lines.append(f"{key}={value}\n")
 
     atomic_write(path, "".join(lines))
-
-
 
 def get_control_values(filename):
     """Reads key-value pairs from the control file.
