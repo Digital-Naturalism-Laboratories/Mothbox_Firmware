@@ -929,7 +929,7 @@ default_backup_controlspaths="/boot/firmware/mothbox_custom/system/default_backu
 autoname="True"
 manName="ErrorName"
 manTimezone="Africa/Timbuktu"
-autoTime="True"
+autoTime="true"
 manTime="1986-04-06 11:11:11"
 bat80=2.0 # These are bad default values that help us notice if something went wrong
 bat20=1.0
@@ -968,7 +968,7 @@ else:
 # Set the time manually!
 if(autoTime=="false"):
     print("We are going to set time manually!")
-    manTime = (thecontrol_values.get("manualTime", "1986-04-06 16:35:00"))
+    
     subprocess.run(["timedatectl", "set-ntp", "false"], check=True) # Try to disable auto time
     subprocess.run([
     "python3",
@@ -996,7 +996,7 @@ print(f"Current time: {formatted_time} on a RPi model " + str(rpiModel))
 
 # ~~~~~~ Setting the Mothbox's unique name ~~~~~~~~~~~~~~~~~~
 
-print(autoname)
+print("Should we use an automatic name?: ",autoname)
 # Add option for people to manually set a name, but default to autoname made by pi5 serial number 
 if(autoname=="true"):
     filename = "/home/pi/Desktop/Mothbox/wordlist.csv"  # Replace with your actual filename
@@ -1034,7 +1034,6 @@ else:
 
 
 
-
 # -----Set MODE: CHECK THE PHYSICAL SWITCH on the GPIO PINS--------------------
 # -----CHECK THE PHYSICAL SWITCH on the GPIO PINS--------------------
 
@@ -1049,8 +1048,6 @@ Standby: sw-Active=1 (but not time for session) - the mothbox pi is shut down, b
 Debug: sw-Debug=1 + sw-Active=1 ------------------ When the mothbox has power, it will wake up and not shut down until manually turned off. Automatic Cron routines will not run. Lights are default off. Wifi stays on.
 Party: sw-Debug=1 + sw-Active=1 + sw-C1=1 ----- subset of debug mode, but it runs a routine to just cycle all the lights
 *TODO ActiveQRProgram:sw-Debug=1+ sw-Active=1+sw-U1=1   -  the schedule gets set by using the camera to read a QR code - will need to turn debug off after
-
-
 
 
 *TODO HI Power: sw-ACtive=1 + sw-HI=1  - like ACTIVE but Assumption is connected not to battery, but unlimited power supply. Wifi stays on, attempts to upload photos to internet servers automatically.
@@ -1080,9 +1077,7 @@ print("HI: ",sHI)
 control_values = get_control_values("/boot/firmware/mothbox_custom/system/controls.txt")
 utc_off=control_values.get("UTCoff", 0.5)
 
-
 #### Check OFF mode
-
 if(sActive==0):
     mode="OFF"
     print("should go to off!")
@@ -1094,6 +1089,8 @@ if(mode=="OFF"):
     run_shutdown_pi5_FAST()
     quit()
 
+# if Active Switch is OFF, it should never make it past here, thus assume active switch is on:
+
 #### Check ACtive Modes
 # Now check for subsets of Active Mode, like Party Mode or Debug
 # TODO
@@ -1102,10 +1099,23 @@ if(sDebug==1):
     None
     mode="DEBUG"
 
-if(sC1==1):
+if(sDebug==1 and sC1==1):
     None
     mode="PARTY"
 
+if(sDebug==1 and sU1==1):
+    None
+    mode="QR_PROG"
+
+
+if(sDebug==0 and sU1==1):
+    None
+    mode="SWITCHES"
+
+
+if(sDebug==0 and sHI==1):
+    None
+    mode="HI_POW"
 
 print("Mothbox mode is:  "+ mode)
 # Write mode to controls.txt
@@ -1114,9 +1124,14 @@ set_Mode(controlsFpath, mode)
 # ----------END SWITCH CHECK----------------
 
 
+# TODO - Implement these modes I haven't coded for yet
+# for now, temp solution
 
-
-
+if mode=="HI_POW" or mode=="SWITCHES" or mode=="QR_PROG":
+    mode="ACTIVE"
+    set_Mode(controlsFpath, mode)
+    print("temp correct mode: ",mode)
+   
 
 
 #------ Log Some Diagnostics with Sensors -----------
@@ -1132,7 +1147,7 @@ run_script("/home/pi/Desktop/Mothbox/Diagnostics.py", "Startup_Check", show_outp
 
 # User Switch Schedule
 sU1 = int(thecontrol_values.get("U1", 1))
-if(sU1==1):
+if( mode=="SWITCHES"):
     None
     print("Schedule Set by User Switches")
     #TODO - actually change the code so the user switches determine the schedule
@@ -1141,7 +1156,7 @@ else:
 
 
 runtime = (
-    0  # this is how long to run the mothbox in minutes for once we wakeup 
+    0  # this is how long to run the mothbox in minutes for once we wakeup, if 0 we did something wrong 
 )
 onlyflash = 0
 
