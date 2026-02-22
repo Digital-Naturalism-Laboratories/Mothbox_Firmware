@@ -1,4 +1,4 @@
-name=svelte'i'iwi
+name=defaultName
 timezone=America/Panama
 UTCoff=-5.0
 weekdays=1;2;3;4;5;6;7

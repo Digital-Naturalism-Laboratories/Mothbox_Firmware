@@ -886,8 +886,9 @@ def update_csv_setting(filename, setting_name, new_value):
         print(f"Warning: Setting '{setting_name}' not found in CSV.")
 
 
-
-# Main Code
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~####
+#                       Main Code
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~###
 
 print("----------------- STARTING Scheduler!-------------------")
 
@@ -901,7 +902,6 @@ if rpiModel == 4:
     print("The Pi4 is not fully supported anymore. It will be unable to wake itself back up. If you really need to use this with a pi4, there are old images you can try, but without a pijuice it won't be able to wake itself up.")
 
 if rpiModel == 5:
-
 
     desired_settings = {"POWER_OFF_ON_HALT": "1", "WAKE_ON_GPIO": "0"}
     current_settings = check_eeprom_settings()
@@ -921,6 +921,9 @@ if rpiModel == 5:
 # Figuring out the controls and settings
 controlsFpath="/boot/firmware/mothbox_custom/system/controls.txt"
 usersettingsFpath="/boot/firmware/mothbox_custom/mothbox_settings.csv"
+default_settingspath = "/boot/firmware/mothbox_custom/system/controls.txt"
+default_backup_controlspaths="/boot/firmware/mothbox_custom/system/default_backup_controls.txt"
+
 
 # Set up some global variables
 autoname="True"
@@ -928,20 +931,22 @@ manName="ErrorName"
 manTimezone="Africa/Timbuktu"
 autoTime="True"
 manTime="1986-04-06 11:11:11"
-bat80=12.0
-bat20=11.0
+bat80=2.0 # These are bad default values that help us notice if something went wrong
+bat20=1.0
 
 # Load custom settings
 settings = load_settings(usersettingsFpath)
 print(settings)
 
-# Change battery settings in controls
+# TODO Change battery settings in controls
 
 
 
 
 # Change the timezone in controls
 set_timezone(controlsFpath, manTimezone)
+
+# Todo - make control values use backup control values in emergency they got corrupted
 thecontrol_values = get_control_values(controlsFpath)
 
 
@@ -959,7 +964,7 @@ else:
   print(stdout.decode())
 
 # See if we should manually set the time
-
+# Todo: fix the time setting algorithm
 # Set the time manually!
 if(autoTime=="false"):
     print("We are going to set time manually!")
@@ -987,68 +992,6 @@ now = datetime.datetime.now()
 formatted_time = now.strftime("%Y-%m-%d %H:%M:%S")  # Adjust the format as needed
 
 print(f"Current time: {formatted_time} on a RPi model " + str(rpiModel))
-
-
-# -----Set MODE: CHECK THE PHYSICAL SWITCH on the GPIO PINS--------------------
-# -----CHECK THE PHYSICAL SWITCH on the GPIO PINS--------------------
-
-'''
-There are several possible modes that a Mothbox can be in
-
-Active: it is currently running a session. Automatic routines go. Wifi stops after 5 mins to save energy.
-Standby: the mothbox pi is shut down, but during the next scheduled session it will become active
-Debug: When the mothbox has power, it will wake up and not shut down until manually turned off. Automatic Cron routines will not run. Lights are default off. Wifi stays on.
-Party: Like debug mode, but it runs a routine to just cycle all the lights
-HI Power: like ACTIVE but Assumption is connected not to battery, but unlimited power supply. Wifi stays on, attempts to upload photos to internet servers automatically.
-
-'''
-
-run_script("/home/pi/Desktop/Mothbox/GetConfigSwitches.py", show_output=True) # need full path!
-
-mode = "ACTIVE"  # possible modes are OFF or DEBUG or ACTIVE or PARTY, active is default
-#yeah load it again, cuz switches maybe changed
-thecontrol_values = get_control_values(controlsFpath)
-sActive = int(thecontrol_values.get("Active", 1))
-sDebug = int(thecontrol_values.get("Debug", 0))
-sC1 = int(thecontrol_values.get("C1", 0))
-
-print(sActive)
-print(sC1)
-
-# Get control values again, because they maybe updated in timezone updater
-control_values = get_control_values("/boot/firmware/mothbox_custom/system/controls.txt")
-utc_off=control_values.get("UTCoff", 0.5)
-
-if(sActive==0):
-    mode="OFF"
-    print("should go to off!")
-
-if(mode=="OFF"):
-    # Write mode to controls.txt
-    set_Mode(controlsFpath, mode)
-
-    run_shutdown_pi5_FAST()
-    quit()
-
-# Now check for subsets of Active Mode, like Party Mode or Debug
-# TODO
-
-if(sDebug==1):
-    None
-    mode="DEBUG"
-
-if(sC1==1):
-    None
-    mode="PARTY"
-
-
-print("Mothbox mode is:  "+ mode)
-# Write mode to controls.txt
-set_Mode(controlsFpath, mode)
-
-# ----------END SWITCH CHECK----------------
-
-
 
 
 # ~~~~~~ Setting the Mothbox's unique name ~~~~~~~~~~~~~~~~~~
@@ -1087,6 +1030,89 @@ else:
   computerName=manName
   print(f"manual name for Mothbox: {computerName}")
 # ---- End figure out name -----
+
+
+
+
+
+# -----Set MODE: CHECK THE PHYSICAL SWITCH on the GPIO PINS--------------------
+# -----CHECK THE PHYSICAL SWITCH on the GPIO PINS--------------------
+
+'''
+There are several possible modes that a Mothbox can be in
+Off: sw-Active=0 sw-Debug=0- Mothbox will turn off as soon as it can anytime it wakes (useful for charging)
+
+Active: sw-Active=1 -  it is currently running a session. Automatic routines go. Wifi stops after 5 mins to save energy.
+Standby: sw-Active=1 (but not time for session) - the mothbox pi is shut down, but during the next scheduled session it will become active
+*TODO ActiveSwitchSet: sw-Active=1 + sw-U1=1 - the schedule will be overwritten with whatever the physical switches say.
+
+Debug: sw-Debug=1 + sw-Active=1 ------------------ When the mothbox has power, it will wake up and not shut down until manually turned off. Automatic Cron routines will not run. Lights are default off. Wifi stays on.
+Party: sw-Debug=1 + sw-Active=1 + sw-C1=1 ----- subset of debug mode, but it runs a routine to just cycle all the lights
+*TODO ActiveQRProgram:sw-Debug=1+ sw-Active=1+sw-U1=1   -  the schedule gets set by using the camera to read a QR code - will need to turn debug off after
+
+
+
+
+*TODO HI Power: sw-ACtive=1 + sw-HI=1  - like ACTIVE but Assumption is connected not to battery, but unlimited power supply. Wifi stays on, attempts to upload photos to internet servers automatically.
+
+
+'''
+mode = "ACTIVE"  #
+
+
+run_script("/home/pi/Desktop/Mothbox/GetConfigSwitches.py", show_output=True) # need full path!
+
+
+#yeah load it again, cuz switches maybe changed
+thecontrol_values = get_control_values(controlsFpath)
+sActive = int(thecontrol_values.get("Active", 1))
+sDebug = int(thecontrol_values.get("Debug", 0))
+sC1 = int(thecontrol_values.get("C1", 0))
+sU1 = int(thecontrol_values.get("U1", 0))
+sHI = int(thecontrol_values.get("HI", 0))
+
+print("Active: ",sActive)
+print("Debug: ",sDebug)
+print("C1: ",sC1)
+print("U1: ",sU1)
+print("HI: ",sHI)
+# Get control values again, because they maybe updated in timezone updater
+control_values = get_control_values("/boot/firmware/mothbox_custom/system/controls.txt")
+utc_off=control_values.get("UTCoff", 0.5)
+
+
+#### Check OFF mode
+
+if(sActive==0):
+    mode="OFF"
+    print("should go to off!")
+
+if(mode=="OFF"):
+    # Write mode to controls.txt
+    set_Mode(controlsFpath, mode)
+
+    run_shutdown_pi5_FAST()
+    quit()
+
+#### Check ACtive Modes
+# Now check for subsets of Active Mode, like Party Mode or Debug
+# TODO
+
+if(sDebug==1):
+    None
+    mode="DEBUG"
+
+if(sC1==1):
+    None
+    mode="PARTY"
+
+
+print("Mothbox mode is:  "+ mode)
+# Write mode to controls.txt
+set_Mode(controlsFpath, mode)
+
+# ----------END SWITCH CHECK----------------
+
 
 
 

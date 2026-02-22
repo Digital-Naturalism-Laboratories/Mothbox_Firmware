@@ -9,7 +9,9 @@ weekday,1;2;3;4;5;6;7, add or remove days 1-7 for monday through sunday
 hour,19;21;23;2;4,specify what hour you want things to turn on in 24 timeframe separate multi values with a semicolon
 minute,0, specify a specific minute that the schedule will start
 second, 1,not currently used by the mothbox
+bat_voltage,11.1, nominal voltage of the battery (voltage is says on the battery like 12v or 24 v)
+bat_Wh,142, this is the watt-hours of power the battery is rated for - for talentcell pb1202b it is 142 - if your battery only have amp-hours you can multiply Ah by the voltage to get watt hours  
 bat_80perVolts,12.0, this is the voltage of the battery when its about 80 percent full (This helps you calibrate the overal battery percent meter for different batteries)
-bat_20perVolts,11.0, this is the voltage of the battery when it is about 20 percent full
+bat_20perVolts,10.5, this is the voltage of the battery when it is about 20 percent full
 wifissid, examplessid, write an SSID of a wifi you want to add to the pi 
 wifipass, examplepass, write the wifi password (not currently implemented)
