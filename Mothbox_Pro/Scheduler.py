@@ -47,7 +47,7 @@ from crontab import CronTab
 import logging
 import re
 import RPi.GPIO as GPIO
-
+import fcntl
 # -----Scheduler Functions-------------------
 
 
@@ -161,106 +161,12 @@ def word_to_seed(word, encoding="utf-8"):
     max_seed_value = 2**32 - 1
     return seed
 
-def set_setTime(filepath):
-    with open(filepath, "r") as file:
-        lines = file.readlines()
 
-    with open(filepath, "w") as file:
-        for line in lines:
-            #print(line)
-            if line.startswith("setTime"):
-                file.write("setTime=" + "False" + "\n")  # Replace with False
-                print("set setTime" + "False")
-            else:
-                file.write(line)  # Keep other lines unchanged
-    
-def set_Mode(filepath, themode):
-    with open(filepath, "r") as file:
-        lines = file.readlines()
-
-    with open(filepath, "w") as file:
-        for line in lines:
-            #print(line)
-            if line.startswith("mode"):
-                file.write("mode=" + str(themode) + "\n")  # Replace with False
-                print("set mode " + themode)
-            else:
-                file.write(line)  # Keep other lines unchanged
-
-
-def set_computerName(filepath, compname):
-    with open(filepath, "r") as file:
-        lines = file.readlines()
-
-    with open(filepath, "w") as file:
-        for line in lines:
-            #print(line)
-            if line.startswith("name"):
-                file.write("name=" + str(compname) + "\n")  # Replace with False
-                print("set name " + compname)
-            else:
-                file.write(line)  # Keep other lines unchanged
-def set_UTCinControls(filepath, utcoff):
-    with open(filepath, "r") as file:
-        lines = file.readlines()
-
-    with open(filepath, "w") as file:
-        for line in lines:
-            #print(line)
-            if line.startswith("UTCoff="):
-                file.write("UTCoff=" + str(utcoff) + "\n")  # Replace with False
-                print("set next UTC offset in controls " + str(utcoff))
-            else:
-                file.write(line)  # Keep other lines unchanged
-
-def set_runtimeinControls(filepath, rt):
-    with open(filepath, "r") as file:
-        lines = file.readlines()
-
-    with open(filepath, "w") as file:
-        for line in lines:
-            #print(line)
-            if line.startswith("runtime="):
-                file.write("runtime=" + str(rt) + "\n")  # Replace with False
-                print("set runtimes in cttttttrls " + str(rt))
-            else:
-                file.write(line)  # Keep other lines unchanged
-
-def set_nextWakeinControls(filepath, etime):
-    with open(filepath, "r") as file:
-        lines = file.readlines()
-
-    with open(filepath, "w") as file:
-        for line in lines:
-            #print(line)
-            if line.startswith("nextWake"):
-                file.write("nextWake=" + str(etime) + "\n")  # Replace with False
-                print("set next wake in controls " + str(etime))
-            else:
-                file.write(line)  # Keep other lines unchanged
-
-def set_timings(filepath, mins,hours,weekdays,runtimes):
-    with open(filepath, "r") as file:
-        lines = file.readlines()
-
-    with open(filepath, "w") as file:
-        for line in lines:
-            #print(line)
-            if line.startswith("hours"):
-                file.write("hours=" + str(hours) + "\n")  # Replace with False
-                print("set hours " + hours)
-            elif line.startswith("weekdays"):
-                file.write("weekdays=" + str(weekdays) + "\n")  # Replace with False
-                print("set weekdays " + weekdays)
-            elif line.startswith("runtime"):
-                file.write("runtime=" + str(runtimes) + "\n")  # Replace with False
-                print("set runtime " + runtimes)
-            elif line.startswith("minutes"):
-                file.write("minutes=" + str(mins) + "\n")  # Replace with False
-                print("set mins " + mins)
-            else:
-                file.write(line)  # Keep other lines unchanged
-
+def set_timings(mins, hours, weekdays, runtimes):
+    atomic_update_kv(os.path.join(CONTROL_ROOT, "minutes.txt"), "minutes", mins)
+    atomic_update_kv(os.path.join(CONTROL_ROOT, "hours.txt"),   "hours",   hours)
+    atomic_update_kv(os.path.join(CONTROL_ROOT, "weekdays.txt"),"weekdays",weekdays)
+    atomic_update_kv(os.path.join(CONTROL_ROOT, "runtime.txt"), "runtime", runtimes)
 
 def generate_unique_name(serial, lang):
     """
@@ -423,6 +329,33 @@ def run_cmd(cmd):
     subprocess.run(cmd, shell=True, check=False)
 
 
+def atomic_write(path, content):
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(content)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+
+def atomic_update_kv(path, key, value):
+    lines = []
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            lines = f.readlines()
+
+    found = False
+    for i, line in enumerate(lines):
+        if line.startswith(key + "="):
+            lines[i] = f"{key}={value}\n"
+            found = True
+
+    if not found:
+        lines.append(f"{key}={value}\n")
+
+    atomic_write(path, "".join(lines))
+
+
+
 def get_control_values(filename):
     """Reads key-value pairs from the control file.
     Args:
@@ -522,8 +455,8 @@ def run_shutdown_pi5():
     # Change the mode to "STANDBY" (if we got to this point, the board must have been "ACTIVE" and so now we are switching to "STANDBY"
 
     # Write mode to controls.txt
-    set_Mode("/boot/firmware/mothbox_custom/system/controls.txt", "STANDBY")
-    
+    #set_Mode("/boot/firmware/mothbox_custom/system/controls.txt", "STANDBY")
+    atomic_update_kv(controlsFpath+"controls/mode.txt", "mode", mode)
 
     #Epaper
     #Update the Epaper screen if it is available 
@@ -756,8 +689,8 @@ def set_wakeup_alarm(epoch_time):
         f.write(str(epoch_time))
     logging.info("Set the Wakeup Alarm" + str(epoch_time))
     #Write to controls here!
-    set_nextWakeinControls("/boot/firmware/mothbox_custom/system/controls.txt",epoch_time)
-    
+    #set_nextWakeinControls("/boot/firmware/mothbox_custom/system/controls.txt",epoch_time)
+    atomic_update_kv(os.path.join(CONTROL_ROOT, "wake.txt"), "nextWake", epoch_time)
 
 
 def run_script(script_path, *args, show_output=True):
@@ -841,8 +774,8 @@ def is_now_in_schedule(settings, runtime_minutes):
 
     return False
 
-
-def set_timezone(filepath, tz):
+#don't use set_timezone anymore
+'''def set_timezone(filepath, tz):
     with open(filepath, "r") as file:
         lines = file.readlines()
 
@@ -854,7 +787,7 @@ def set_timezone(filepath, tz):
                 print("set name " + tz)
             else:
                 file.write(line)  # Keep other lines unchanged
-
+'''
 def update_csv_setting(filename, setting_name, new_value):
     rows = []
     fieldnames = []
@@ -919,9 +852,13 @@ if rpiModel == 5:
 ### ---------- End EEPROM stuff
 
 # Figuring out the controls and settings
-controlsFpath="/boot/firmware/mothbox_custom/system/controls.txt"
+controlsFpath="/boot/firmware/mothbox_custom/system/controls/" #it's a folder now we point to sub parts
+
+CONTROL_ROOT = os.path.join(controlsFpath, "controls")
+os.makedirs(CONTROL_ROOT, exist_ok=True)
+
 usersettingsFpath="/boot/firmware/mothbox_custom/mothbox_settings.csv"
-default_settingspath = "/boot/firmware/mothbox_custom/system/controls.txt"
+default_settingspath = "/boot/firmware/mothbox_custom/system/default_settings.txt"
 default_backup_controlspaths="/boot/firmware/mothbox_custom/system/default_backup_controls.txt"
 
 
@@ -944,7 +881,8 @@ print(settings)
 
 
 # Change the timezone in controls
-set_timezone(controlsFpath, manTimezone)
+#set_timezone(controlsFpath, manTimezone)
+atomic_update_kv(os.path.join(CONTROL_ROOT, "timezone.txt"), "timezone", manTimezone)
 
 # Todo - make control values use backup control values in emergency they got corrupted
 thecontrol_values = get_control_values(controlsFpath)
@@ -1025,7 +963,8 @@ if(autoname=="true"):
     print(f"Unique name for device: {unique_name}")
 
     # Change it in controls
-    set_computerName("/boot/firmware/mothbox_custom/system/controls.txt", unique_name)
+    #set_computerName("/boot/firmware/mothbox_custom/system/controls.txt", unique_name)
+    atomic_update_kv(os.path.join(CONTROL_ROOT, "name.txt"), "name", unique_name)
 else:
   computerName=manName
   print(f"manual name for Mothbox: {computerName}")
@@ -1084,8 +1023,8 @@ if(sActive==0):
 
 if(mode=="OFF"):
     # Write mode to controls.txt
-    set_Mode(controlsFpath, mode)
-
+    #set_Mode(controlsFpath, mode)
+    atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
     run_shutdown_pi5_FAST()
     quit()
 
@@ -1119,7 +1058,8 @@ if(sDebug==0 and sHI==1):
 
 print("Mothbox mode is:  "+ mode)
 # Write mode to controls.txt
-set_Mode(controlsFpath, mode)
+#set_Mode(controlsFpath, mode)
+atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
 
 # ----------END SWITCH CHECK----------------
 
@@ -1129,7 +1069,8 @@ set_Mode(controlsFpath, mode)
 
 if mode=="HI_POW" or mode=="SWITCHES" or mode=="QR_PROG":
     mode="ACTIVE"
-    set_Mode(controlsFpath, mode)
+    atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
+    #set_Mode(controlsFpath, mode)
     print("temp correct mode: ",mode)
    
 
@@ -1163,15 +1104,18 @@ onlyflash = 0
 
 # ~~~~~~~ Do the Scheduling ~~~~~~~~~~~~~~~~~~~~
 
-set_timings("/boot/firmware/mothbox_custom/system/controls.txt", settings["minute"], settings["hour"],settings["weekday"],settings["runtime"])
+#set_timings("/boot/firmware/mothbox_custom/system/controls.txt", settings["minute"], settings["hour"],settings["weekday"],settings["runtime"])
 
 
 
 if "runtime" in settings:
     runtime= int(settings["runtime"])
-    set_runtimeinControls("/boot/firmware/mothbox_custom/system/controls.txt",runtime)
     del settings["runtime"]
 
+set_timings(settings["minute"],
+            settings["hour"],
+            settings["weekday"],
+            settings["runtime"])
 
 print("printing schedule settings")
 
@@ -1230,8 +1174,8 @@ if mode == "ACTIVE":  # ignore this if we are in debug mode
         print("Active, but outside schedule window, STANDBY mode — shutting down")
         mode="STANDBY"
         # Write mode to controls.txt
-        set_Mode(controlsFpath, mode)
-        
+        #set_Mode(controlsFpath, mode)
+        atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
         # Flashing Sequence to indicate to user we are in Standby mode
         # Have to use non boot locked versions
         run_cmd("python /home/pi/Desktop/Mothbox/scripts/blink_standby.py")
