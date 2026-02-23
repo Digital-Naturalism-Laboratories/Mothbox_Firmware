@@ -12,6 +12,7 @@ leaving a 0 power high contrast display to view in the field.
 import sys
 import os
 import csv
+from pathlib import Path
 
 picdir = "/home/pi/Desktop/Mothbox/scripts/RaspberryPi_JetsonNano_Epaper/pic"
 #picdir = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'pic')
@@ -55,7 +56,7 @@ def load_settings(filename):
 
     default_path = "/boot/firmware/mothbox_custom/mothbox_settings.csv"
     file_path=filename
-    global runtime, utc_off, ssid, wifipass, newwifidetected, onlyflash,autoname, manName, manTimezone, autoTime, manTime, bat80, bat20
+    global runtime, utc_off, ssid, wifipass, newwifidetected, onlyflash,autoname, manName, manTimezone, autoTime, manTime, bat80, bat20, bat_Wh, bat_voltage
     utc_off = 0  # this is the offset from UTC time we use to set the alarm
     runtime = 0  # this is how long to run the mothbox in minutes for once we wakeup 0 is forever
     # newwifidetected=False
@@ -106,6 +107,10 @@ def load_settings(filename):
                     manName = value
                 elif setting == "onlyflash":
                     onlyflash = int(value)
+                elif setting == "bat_voltage":
+                    bat_voltage =float(value)                    
+                elif setting == "bat_Wh":
+                    bat_Wh =float(value)
                 elif setting == "bat_80perVolts":
                     bat80 =float(value)
                 elif setting == "bat_20perVolts":
@@ -122,19 +127,35 @@ def load_settings(filename):
         return None
         
         
-def get_control_values(filepath):
-    """Reads key-value pairs from the control file."""
-    control_values = {}
-    with open(filepath, "r") as file:
-        for line in file:
-            key, value = line.strip().split("=")
-            control_values[key] = value
-    return control_values
+CONTROL_ROOT = Path("/boot/firmware/mothbox_custom/system/controls")
 
 
+def read_control(path: Path, key: str, default=None):
+    """
+    Reads a single key=value control file.
+    Safe against missing, empty, or corrupted files.
+    """
+    if not path.exists():
+        return default
+
+    try:
+        with open(path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                if k.strip() == key:
+                    return v.strip()
+    except Exception as e:
+        print(f"⚠️ Warning: Failed reading {path}: {e}")
+
+    return default
 
 
-controlsFpath="/boot/firmware/mothbox_custom/system/controls.txt"
+# ---- Load Controls ----
+
+
 usersettingsFpath="/boot/firmware/mothbox_custom/mothbox_settings.csv"
 
 
@@ -143,9 +164,11 @@ usersettingsFpath="/boot/firmware/mothbox_custom/mothbox_settings.csv"
 
 bat80=12.0
 bat20=11.0
+bat_Wh =1
+bat_voltage=1                                                      
 # Load custom settings
 settings = load_settings(usersettingsFpath)
-control_values = get_control_values(controlsFpath)
+#control_values = get_control_values(controlsFpath)
 
 # -----CHECK THE PHYSICAL SWITCH on the GPIO PINS--------------------
 
@@ -166,15 +189,21 @@ HI Power: like ACTIVE but Assumption is connected not to battery, but unlimited 
 
 
 ### Mothbox Name
-onlyflash = control_values.get("OnlyFlash", "False").lower() == "true"
-LastCalibration = float(control_values.get("LastCalibration", 0))
-computerName = control_values.get("name", "errorname")
+#onlyflash = control_values.get("OnlyFlash", "False").lower() == "true"
+onlyflash = read_control(CONTROL_ROOT / "onlyflash.txt", "onlyflash", "0")
+
+#LastCalibration = float(control_values.get("LastCalibration", 0))
+LastCalibration= float(read_control(CONTROL_ROOT / "lastcalibration.txt", "lastcalibration", 0))
+
+computerName = read_control(CONTROL_ROOT / "name.txt", "name", "errorname")
+#computerName = control_values.get("name", "errorname")
 print(f"Mothbox Name: {computerName}")
 
 
 # We will receive the mode from the control values
 
-mode = control_values.get("mode", "errormode")
+#mode = control_values.get("mode", "errormode")
+mode = read_control(CONTROL_ROOT / "mode.txt", "mode", "ERRORMODE")
 
 print("Current Mothbox MODE: ", mode)
 
@@ -231,26 +260,46 @@ photo_count_int = count_photos("/home/pi/Desktop/Mothbox/photos_backedup")+ coun
 
 
 # Wake Time
-nexttime=int(control_values.get("nextWake",0))
+#nexttime=int(control_values.get("nextWake",0))
+nexttime = int(read_control(CONTROL_ROOT / "nextwake.txt", "nextwake", "-1"))
 
 # Schedule Stuff
-hours=control_values.get("hours", "error")
-weekdays=control_values.get("weekdays", "error")
-mins=control_values.get("minutes", "error")
-runtime=control_values.get("runtime", "error")
+#hours=control_values.get("hours", "error")
+hours = read_control(CONTROL_ROOT / "hours.txt", "hours", "errorhours")
+
+#weekdays=control_values.get("weekdays", "error")
+weekdays = read_control(CONTROL_ROOT / "weekdays.txt", "weekdays", "errorweekdays")
+
+
+#mins=control_values.get("minutes", "error")
+mins = read_control(CONTROL_ROOT / "minutes.txt", "minutes", "errorminutes")
+
+#runtime=control_values.get("runtime", "error")
+runtime = read_control(CONTROL_ROOT / "runtime.txt", "runtime", "erroruntime")
+
 
 
 # UTCoffset
-UTCoff=control_values.get("UTCoff", "error")
+#UTCoff=control_values.get("UTCoff", "error")
+UTCoff= read_control(CONTROL_ROOT / "utc.txt", "utc", "erroUTC")
+
 
 #GPS stuff
-lat=control_values.get("lat", "error")
-lon=control_values.get("lon", "error")
-gpstime=control_values.get("gpstime", "error")
+#lat=control_values.get("lat", "error")
+lat= read_control(CONTROL_ROOT / "lat.txt", "lat", "errolat")
+
+#lon=control_values.get("lon", "error")
+lon= read_control(CONTROL_ROOT / "lon.txt", "lon", "errolon")
+
+#gpstime=control_values.get("gpstime", "error")
+gpstime= read_control(CONTROL_ROOT / "gpstime.txt", "gpstime", "errgpstime")
+
 
 
 #Software Version
-softwareversion=control_values.get("softwareversion", "error")
+#softwareversion=control_values.get("softwareversion", "error")
+softwareversion= read_control(CONTROL_ROOT / "softwareversion.txt", "softwareversion", "errorsoftwareversion")
+
 
 #Battery State
 

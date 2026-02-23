@@ -39,8 +39,6 @@ import os
 import numpy as np
 import sys
 import schedule
-import time
-from time import sleep
 
 import crontab
 from crontab import CronTab
@@ -262,7 +260,7 @@ def load_settings(filename):
 
     default_path = "/boot/firmware/mothbox_custom/mothbox_settings.csv"
     file_path=filename
-    global runtime, utc_off, ssid, wifipass, newwifidetected, onlyflash,autoname, manName, manTimezone, autoTime, manTime, bat80, bat20
+    global runtime, utc_off, ssid, wifipass, newwifidetected, onlyflash,autoname, manName, manTimezone, autoTime, manTime, bat80, bat20, bat_Wh, bat_voltage
     runtime = 0  # this is how long to run the mothbox in minutes for once we wakeup 0 is forever
     # newwifidetected=False
     onlyflash = 0
@@ -310,6 +308,10 @@ def load_settings(filename):
                     manName = value
                 elif setting == "onlyflash":
                     onlyflash = int(value)
+                elif setting == "bat_voltage":
+                    bat_voltage =float(value)                    
+                elif setting == "bat_Wh":
+                    bat_Wh =float(value)
                 elif setting == "bat_80perVolts":
                     bat80 =float(value)
                 elif setting == "bat_20perVolts":
@@ -359,16 +361,35 @@ def atomic_update_kv(path, key, value):
     atomic_write(path, "".join(lines))
 
 def get_control_values(filename):
-    """Reads key-value pairs from the control file.
-    Args:
-    filename:  Name of the control file
     """
+    Safely reads key=value pairs from a control file.
+    Returns {} if file does not exist or is unreadable.
+    Ignores malformed lines.
+    Never raises on read failure.
+    """
+
     control_values = {}
-    with open(filename, "r") as file:
-        for line in file:
-            key, value = line.strip().split("=")
-            control_values[key] = value
+
+    if not os.path.exists(filename):
+        return control_values
+
+    try:
+        with open(filename, "r") as file:
+            for line in file:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    continue
+
+                key, value = line.split("=", 1)
+                control_values[key.strip()] = value.strip()
+
+    except Exception as e:
+        print(f"⚠️ Warning: Failed reading {filename}: {e}")
+
     return control_values
+
 
 def schedule_shutdown(minutes):
     """Schedules the execution of shutdown after the specified delay in minutes."""
@@ -380,10 +401,8 @@ def schedule_shutdown(minutes):
 
     try:
         while True:
-            control_values = get_control_values("/boot/firmware/mothbox_custom/system/controls.txt")
-            shutdown_enabled = (
-                control_values.get("shutdown_enabled", "True").lower() == "true"
-            )
+            #control_values = get_control_values("/boot/firmware/mothbox_custom/system/controls.txt")
+            shutdown_enabled = read_control("shutdown_enabled", "true").lower() == "true"
             if not shutdown_enabled:
                 print("Shutdown scheduling stopped.")
                 break
@@ -567,38 +586,18 @@ def run_shutdown_pi5_FAST():
 
 
 def enable_shutdown():
-    """Enable Shutdown"""
-    with open("/boot/firmware/mothbox_custom/system/controls.txt", "r") as file:
-        lines = file.readlines()
-
-    with open("/boot/firmware/mothbox_custom/system/controls.txt", "w") as file:
-        for line in lines:
-            # print(line)
-            if line.startswith("shutdown_enabled="):
-                file.write("shutdown_enabled=True\n")  # Replace with False
-                print("enabling shutown in controls.txt")
-            else:
-                file.write(line)  # Keep other lines unchanged
-
+    atomic_update_kv(
+        os.path.join(CONTROL_ROOT, "shutdown_enabled.txt"),
+        "shutdown_enabled",
+        "true"
+    )
 
 def enable_onlyflash():
-    """Enable Flash"""
-    with open("/boot/firmware/mothbox_custom/system/controls.txt", "r") as file:
-        lines = file.readlines()
-
-    with open("/boot/firmware/mothbox_custom/system/controls.txt", "w") as file:
-        for line in lines:
-            # print(line)
-            if line.startswith("OnlyFlash="):
-                if onlyflash == 1:
-                    file.write("OnlyFlash=True\n")  # Replace with False
-                    print("enabling onlyflash attraction controls.txt")
-                else:
-                    file.write("OnlyFlash=False\n")  # Replace with False
-
-            else:
-                file.write(line)  # Keep other lines unchanged
-
+    atomic_update_kv(
+        os.path.join(CONTROL_ROOT, "onlyflash.txt"),
+        "onlyflash",
+        onlyflash
+    )
 
 def stopcron():
     """Executes the '/home/pi/Desktop/Mothbox/StopCron.py' script."""
@@ -692,7 +691,7 @@ def set_wakeup_alarm(epoch_time):
     logging.info("Set the Wakeup Alarm" + str(epoch_time))
     #Write to controls here!
     #set_nextWakeinControls("/boot/firmware/mothbox_custom/system/controls.txt",epoch_time)
-    atomic_update_kv(os.path.join(CONTROL_ROOT, "wake.txt"), "nextWake", epoch_time)
+    atomic_update_kv(os.path.join(CONTROL_ROOT, "nextwake.txt"), "nextwake", epoch_time)
 
 
 def run_script(script_path, *args, show_output=True):
@@ -821,6 +820,16 @@ def update_csv_setting(filename, setting_name, new_value):
         print(f"Warning: Setting '{setting_name}' not found in CSV.")
 
 
+
+def read_control(key, default=None):
+    path = os.path.join(CONTROL_ROOT, f"{key}.txt")
+    if not os.path.exists(path):
+        return default
+    vals = get_control_values(path)
+    return vals.get(key, default)
+
+
+
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~####
 #                       Main Code
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~###
@@ -854,8 +863,7 @@ if rpiModel == 5:
 ### ---------- End EEPROM stuff
 
 # Figuring out the controls and settings
-controlsFpath="/boot/firmware/mothbox_custom/system/controls/" #it's a folder now we point to sub parts
-
+controlsFpath="/boot/firmware/mothbox_custom/system"
 CONTROL_ROOT = os.path.join(controlsFpath, "controls")
 os.makedirs(CONTROL_ROOT, exist_ok=True)
 
@@ -872,7 +880,8 @@ autoTime="true"
 manTime="1986-04-06 11:11:11"
 bat80=2.0 # These are bad default values that help us notice if something went wrong
 bat20=1.0
-
+bat_Wh=10
+bat_voltage=1
 # Load custom settings
 settings = load_settings(usersettingsFpath)
 print(settings)
@@ -887,7 +896,7 @@ print(settings)
 atomic_update_kv(os.path.join(CONTROL_ROOT, "timezone.txt"), "timezone", manTimezone)
 
 # Todo - make control values use backup control values in emergency they got corrupted
-thecontrol_values = get_control_values(controlsFpath)
+#thecontrol_values = get_control_values(controlsFpath)
 
 
 # Check the timezone
@@ -995,42 +1004,42 @@ Party: sw-Debug=1 + sw-Active=1 + sw-C1=1 ----- subset of debug mode, but it run
 
 
 '''
-mode = "ACTIVE"  #
+mode = "ACTIVE"
 
+# Update hardware switch snapshot
+run_script("/home/pi/Desktop/Mothbox/GetConfigSwitches.py", show_output=True)
 
-run_script("/home/pi/Desktop/Mothbox/GetConfigSwitches.py", show_output=True) # need full path!
+# Read switches snapshot
+switch_path = os.path.join(CONTROL_ROOT, "switches.txt")
+switch_vals = get_control_values(switch_path)
 
+sActive = int(switch_vals.get("Active", 1))
+sDebug  = int(switch_vals.get("Debug", 0))
+sC1     = int(switch_vals.get("C1", 0))
+sU1     = int(switch_vals.get("U1", 0))
+sHI     = int(switch_vals.get("HI", 0))
 
-#yeah load it again, cuz switches maybe changed
-thecontrol_values = get_control_values(controlsFpath)
-sActive = int(thecontrol_values.get("Active", 1))
-sDebug = int(thecontrol_values.get("Debug", 0))
-sC1 = int(thecontrol_values.get("C1", 0))
-sU1 = int(thecontrol_values.get("U1", 0))
-sHI = int(thecontrol_values.get("HI", 0))
+print("Active:", sActive)
+print("Debug:",  sDebug)
+print("C1:",     sC1)
+print("U1:",     sU1)
+print("HI:",     sHI)
 
-print("Active: ",sActive)
-print("Debug: ",sDebug)
-print("C1: ",sC1)
-print("U1: ",sU1)
-print("HI: ",sHI)
-# Get control values again, because they maybe updated in timezone updater
-control_values = get_control_values("/boot/firmware/mothbox_custom/system/controls.txt")
-utc_off=control_values.get("UTCoff", 0.5)
+# Read UTC offset from new control layout
+utc_off = float(read_control("utc", 0))
 
 #### Check OFF mode
-if(sActive==0):
-    mode="OFF"
+if sActive == 0:
+    mode = "OFF"
     print("should go to off!")
 
-if(mode=="OFF"):
-    # Write mode to controls.txt
-    #set_Mode(controlsFpath, mode)
+if mode == "OFF":
     atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
     run_shutdown_pi5_FAST()
     quit()
 
-# if Active Switch is OFF, it should never make it past here, thus assume active switch is on:
+# If Active Switch is OFF, it should never make it past here
+
 
 #### Check ACtive Modes
 # Now check for subsets of Active Mode, like Party Mode or Debug
@@ -1089,7 +1098,6 @@ run_script("/home/pi/Desktop/Mothbox/Diagnostics.py", "Startup_Check", show_outp
 # ~~~~ Pi 5 specific things to change cron-like commands to the next UTC target
 
 # User Switch Schedule
-sU1 = int(thecontrol_values.get("U1", 1))
 if( mode=="SWITCHES"):
     None
     print("Schedule Set by User Switches")
@@ -1110,15 +1118,15 @@ onlyflash = 0
 
 
 
-if "runtime" in settings:
-    runtime= int(settings["runtime"])
-    del settings["runtime"]
+
 
 set_timings(settings["minute"],
             settings["hour"],
             settings["weekday"],
             settings["runtime"])
-
+if "runtime" in settings:
+    runtime= int(settings["runtime"])
+    del settings["runtime"]
 print("printing schedule settings")
 
 if rpiModel == 4:
@@ -1272,6 +1280,7 @@ if os.path.exists(BOOT_LOCK):
 
 if runtime > 0 and mode != "DEBUG":
     enable_shutdown()
+    time.sleep(0.05)
     print("Stuff will run for " + str(runtime) + " minutes before shutdown")
     schedule_shutdown(runtime)
 else:

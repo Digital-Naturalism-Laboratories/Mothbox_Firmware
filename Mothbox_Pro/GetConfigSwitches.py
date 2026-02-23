@@ -1,6 +1,7 @@
 import smbus2
 import time
 import subprocess
+import os
 
 # --- Configuration ---
 I2C_BUS = 1
@@ -122,7 +123,26 @@ def read_all_switches():
         all_states[addr] = bits
 
     return all_states
+def atomic_write(path, content):
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(content)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+def write_all_switches(path, switch_states):
+    """
+    Writes all switch states into switches.txt atomically.
+    switch_states: dict like {"Active":1, "Debug":0, ...}
+    """
+    os.makedirs(os.path.dirname(path), exist_ok=True)
 
+    lines = []
+    for name in DESCRIPTIVE_NAMES:
+        val = switch_states.get(name, 0)
+        lines.append(f"{name}={val}\n")
+
+    atomic_write(path, "".join(lines))
 
 def get_switch_state(name):
     """
@@ -146,7 +166,8 @@ def get_switch_state(name):
 
     return value
 
-def set_SwitchesinControls(filepath, switch, state):
+# bad don't use me
+'''def set_SwitchesinControls(filepath, switch, state):
     with open(filepath, "r") as file:
         lines = file.readlines()
 
@@ -157,7 +178,7 @@ def set_SwitchesinControls(filepath, switch, state):
                 file.write(switch+"=" + str(state) + "\n")  
                 #print("set next switch "+switch +" state in controls " + str(state))
             else:
-                file.write(line)  # Keep other lines unchanged
+                file.write(line)  # Keep other lines unchanged'''
 
 
 def run_script(script_path, show_output=True):
@@ -184,16 +205,25 @@ def run_script(script_path, show_output=True):
 
 def main():
     run_script("/home/pi/Desktop/Mothbox/scripts/3v3SensorsOn.py", show_output=False)
+    time.sleep(0.1)
+
+    switch_values = {}
+    for desc_name in DESCRIPTIVE_NAMES:
+        switch_values[desc_name] = get_switch_state(desc_name)
+
+    write_all_switches(
+        "/boot/firmware/mothbox_custom/system/controls/switches.txt",
+        switch_values
+    )
+
+    time.sleep(0.1)
+    run_script("/home/pi/Desktop/Mothbox/scripts/3v3SensorsOff.py", show_output=False)
+'''
+def main():
+    run_script("/home/pi/Desktop/Mothbox/scripts/3v3SensorsOn.py", show_output=False)
     time.sleep(.1)
     all_switch_states = read_all_switches()
-    '''
-    print("\n--- Switch States ---")
-    for addr, pins in all_switch_states.items():
-        print(f"PCA9555 @ {hex(addr)}:")
-        for name, state in pins.items():
-            print(f"  {name}: {state}")
-        print("-" * 30)
-    '''
+    
     # Example usage of descriptive lookup:
     print("\n--- Config Switch - Descriptive Name Lookups ---")
     for desc_name in DESCRIPTIVE_NAMES:
@@ -202,6 +232,7 @@ def main():
         set_SwitchesinControls("/boot/firmware/mothbox_custom/system/controls.txt",desc_name,value)
     time.sleep(.1)            
     run_script("/home/pi/Desktop/Mothbox/scripts/3v3SensorsOff.py", show_output=False)
+'''
 
 if __name__ == "__main__":
     main()

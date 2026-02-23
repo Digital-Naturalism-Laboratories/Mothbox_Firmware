@@ -44,20 +44,41 @@ import sys
 
 
 
+from pathlib import Path
 
-def get_control_values(filepath):
-    """Reads key-value pairs from the control file."""
-    control_values = {}
-    with open(filepath, "r") as file:
-        for line in file:
-            key, value = line.strip().split("=")
-            control_values[key] = value
-    return control_values
+CONTROL_ROOT = Path("/boot/firmware/mothbox_custom/system/controls")
 
 
+def read_control(path: Path, key: str, default=None):
+    """
+    Reads a single key=value control file.
+    Safe against missing, empty, or corrupted files.
+    """
+    if not path.exists():
+        return default
 
-thecontrol_values = get_control_values("/boot/firmware/mothbox_custom/system/controls.txt")
-computerName = thecontrol_values.get("name", "errorname")
+    try:
+        with open(path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                if k.strip() == key:
+                    return v.strip()
+    except Exception as e:
+        print(f"⚠️ Warning: Failed reading {path}: {e}")
+
+    return default
+
+
+# ---- Load Controls ----
+
+computerName = read_control(CONTROL_ROOT / "name.txt", "name", "errorname")
+
+internal_storage_minimum = int(
+    read_control(CONTROL_ROOT / "safetygb.txt", "safetygb", 9)
+)
 
 
 # Define paths
@@ -69,7 +90,6 @@ logs_folder = desktop_path / "logs"
 backedup_photos_folder = desktop_path / "photos_backedup"
 
 backup_folder_name = "photos_backup_"+computerName
-internal_storage_minimum = int(thecontrol_values.get("safetyGB",9)) # This is Gigabytes, below 6 on a raspberry pi 5 can make weird OS problems
 
 print("----------------- STARTING BACKUP FILES-------------------")
 now = datetime.now()
