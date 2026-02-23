@@ -34,6 +34,12 @@ GPIO.setup(GPIO_SW_Ch3,GPIO.OUT)
 GPIO.setup(GPIO_SW_ChExt,GPIO.OUT)
 print("Setup The GPIO_SW Module is [success]")
 
+
+GPIO_SW_Flash = 19
+
+GPIO.setup(GPIO_SW_Flash,GPIO.OUT)
+
+
 # This is a weird hack right now where because Ext Att is connected to 7, but 7 is owned by SPI, we override it
 def run_cmd(cmd):
     """Run a shell command safely"""
@@ -65,15 +71,31 @@ def AttractOff():
     
     print("Attract Lights Off\n")
 
+def flashOn():
+    GPIO.output(GPIO_SW_Flash,GPIO.HIGH)
+    run_cmd("python /home/pi/Desktop/Mothbox/scripts/12vOn.py")
+
+    #print("Flash Lights On\n")
+    
+def flashOff():
+    #run_cmd("python /home/pi/Desktop/Mothbox/scripts/12vOff.py")
+
+    GPIO.output(GPIO_SW_Flash,GPIO.LOW)
+
+    #print("Flash Lights Off\n")
 
 AttractOn()
+flashOn()
 time.sleep(.25)
 
+flashOff()
 AttractOff()
 time.sleep(.25)
 
+flashOn()
 AttractOn()
 time.sleep(.25)
 
+flashOff()
 AttractOff()
 quit()
