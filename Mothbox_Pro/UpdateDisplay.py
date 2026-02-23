@@ -225,7 +225,7 @@ def count_photos(folder):
                 count += 1
     return count
 
-time.sleep(6) # need to wait for USB drives to mount
+#time.sleep(6) # need to wait for USB drives to mount
 
 
 # Check for external drives
@@ -405,14 +405,23 @@ try:
     epd.Clear(0xFF)
 
     # Drawing on the image
-    fontHeaders = ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/scientifica/ttf/scientificaBold.ttf', 13)
+    #fontHeaders = ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/scientifica/ttf/scientificaBold.ttf', 13)
+    fontHeaders = ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson_Next/AtkinsonHyperlegibleNext-Regular.otf', 13)
+    #fontHeaders = ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson/Atkinson-Hyperlegible-Regular-102.ttf', 12)
+    fontHeadersSmall = ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson_Next/AtkinsonHyperlegibleNext-Bold.otf', 9)
+
+    
     font8 = ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/clear-sans/TTF/ClearSans-Medium.ttf', 8)
 
     font_bigs=ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/clear-sans/TTF/ClearSans-Bold.ttf',8)
     
     font_robotosemicon10=ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/scientifica/ttf/scientificaBold.ttf',13)
     font_scientifica22=ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/scientifica/ttf/scientificaBold.ttf',22)
+    
+    font_Atkinson19 = ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson_Next/AtkinsonHyperlegibleNext-Bold.otf', 19)
+
     font_Mediumtext=ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/clear-sans/TTF/ClearSans-Medium.ttf',14)
+    font_Mediumtext12=ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/clear-sans/TTF/ClearSans-Regular.ttf',12)
 
     font_roboto10=ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/scientifica/ttf/scientificaBold.ttf',12)
 
@@ -437,10 +446,10 @@ try:
     # Name and State
     # Draw text elements (adjust coordinates to suit portrait layout)
     #draw.text((2,7), "NAME: ", font=font8, fill=0)
-    draw.text((2, -2), "" + computerName, font=font_scientifica22, fill=0)
+    draw.text((2, -2), "" + computerName, font=font_Atkinson19, fill=0)
 
     draw.text((colW,5), "state: ", font=fontHeaders, fill=0)
-    draw.text((colW+4,-2), "   "+mode, font=font_scientifica22, fill=0)
+    draw.text((colW+4,-2), "     "+mode, font=font_Atkinson19, fill=0)
 
     #next wake
     draw.text((2, rowH+3), 'next wake:', font=fontHeaders, fill=0)
@@ -454,17 +463,23 @@ try:
 
     draw.text((2, 3*rowH), "last update: ", font=fontHeaders, fill=0)
     #draw.text((0, 4*rowH), time.strftime('%m-%d %H:%M:%S') + "UTC:"+str(UTCoff), font=fontHeaders, fill=0)
-    draw.text((0, 4*rowH), time.strftime('%m-%d %H:%M') + " UTC:"+str(UTCoff), font=fontHeaders, fill=0)
+    draw.text((0, 4*rowH-5), time.strftime('%m-%d %H:%M') + " UTC:"+str(UTCoff), font=font_Mediumtext12, fill=0)
 
     draw.line([(0,4*rowH+12),(epd.height/2,4*rowH+12)], fill = 0,width = 1)
 
+    draw.text((2, 5.5*rowH), 'RUNTIME: ', font=fontHeadersSmall, fill=0)
+    draw.text((2, 5.3*rowH), '                ' + runtime+ " mins", font=fontHeaders, fill=0)
 
-    draw.text((2, 5.5*rowH), 'RUNTIME: ' + runtime+ " mins", font=fontHeaders, fill=0)
-    draw.text((2, 6.5*rowH), 'DAYS:' + weekdays, font=fontHeaders, fill=0)
-    draw.text((2, 7.5*rowH), 'HOURS:'+hours, font=fontHeaders, fill=0)
+    draw.text((2, 6.5*rowH), 'DAYS:' , font=fontHeadersSmall, fill=0)
+    draw.text((2, 6.3*rowH), '         ' + weekdays, font=fontHeaders, fill=0)
+
+    draw.text((2, 7.5*rowH), 'HOURS:', font=fontHeadersSmall, fill=0)
+    draw.text((2, 7.3*rowH), '         '+hours, font=fontHeaders, fill=0)
+
     
     if(mins!="0"):
-        draw.text((2, 8.5*rowH), 'MINUTES: ' + mins, font=fontHeaders, fill=0)
+        draw.text((2, 8.5*rowH), 'MINUTES: ', font=fontHeadersSmall, fill=0)
+        draw.text((2, 8.3*rowH), '                ' + mins, font=fontHeaders, fill=0)
 
 
 
@@ -476,23 +491,23 @@ try:
     if(voltage==-100):
         draw.text((colW+2, 2*rowH), f"UNKNOWN", font=fontHeaders, fill=0)
     else:
-        draw.text((colW+2, 1.3*rowH), f"     {percent:.0f}%", font=font_scientifica22, fill=0)
+        draw.text((colW+6, 1.4*rowH), f"          {percent:.0f}%", font=font_Atkinson19 , fill=0)
 
     # DISK
     # Add disk space info
-    draw.text((colW+2, 3*rowH+2), f'SD:{used_gb} GB/{total_gb}GB used\n          {photo_count_int} photos', font=fontHeaders, fill=0)
+    draw.text((colW, 3*rowH+2), f'SD:{used_gb}GB/{total_gb}GB used\n          {photo_count_int} photos', font=fontHeaders, fill=0)
 
     # Starting Y position for external info (after previous lines)
-    y_pos=5*rowH+2
+    y_pos=5*rowH+3
     if external_info:
         for line in external_info.strip().split('\n'):
-            draw.text((colW+2, y_pos), line, font=fontHeaders, fill=0)
+            draw.text((colW, y_pos), line, font=fontHeaders, fill=0)
             y_pos += 12  # line spacing
     else:
         draw.text((colW+2, y_pos), "No USB found", font=fontHeaders, fill=0)
 
     #GPS stuff
-    draw.text((colW+2, 7.5*rowH), 'GPS: '+str(lat) +","+str(lon), font=font_robotosemicon10, fill=0)
+    draw.text((colW+2, 7.5*rowH), 'GPS: '+str(lat) +","+str(lon), font=fontHeaders, fill=0)
     #draw.text((+2, 9*rowH), '        '+str(lon), font=font_robotosemicon10, fill=0)
     
     draw.line([(epd.height/2,6.5*rowH+12),(epd.height,6.5*rowH+12)], fill = 0,width = 1)
