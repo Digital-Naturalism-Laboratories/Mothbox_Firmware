@@ -75,6 +75,7 @@ def read_control(path: Path, key: str, default=None):
 # ---- Load Controls ----
 
 computerName = read_control(CONTROL_ROOT / "name.txt", "name", "errorname")
+LastCalibration= float(read_control(CONTROL_ROOT / "lastcalibration.txt", "lastcalibration", 0))
 
 internal_storage_minimum = int(
     read_control(CONTROL_ROOT / "safetygb.txt", "safetygb", 9)

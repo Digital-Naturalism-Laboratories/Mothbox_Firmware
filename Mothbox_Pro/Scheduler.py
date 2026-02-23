@@ -1208,7 +1208,7 @@ else:
   
 
 # Toggle a mode where the flash lights are always on
-enable_onlyflash()
+#enable_onlyflash()
 
 
 
