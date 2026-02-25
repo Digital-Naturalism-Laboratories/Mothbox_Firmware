@@ -1,0 +1,2 @@
+OnlyFlash=Falseonlyflash=0
+onlyflash=0

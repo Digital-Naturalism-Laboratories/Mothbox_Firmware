@@ -3,7 +3,7 @@ autoname, True, this automatically generates unique names for your mothbox
 name, customName, if 'autoname' is False the mothbox will use the name you supply here 
 timezone,America/Panama, this must be an official timezone from the list of linux timezones (supplied in the neighboring file)
 autoSystemTime,True, leave this as True and the mothbox will automatically set its own time
-manualTime,2026-02-22 15:26:11, if the autoSystemTime is False the mothbox will get set to whatever value you put here ONE time and then disable manual time setting (to prevent Groundhog Days) until you set AutosystemTime to False again 
+manualTime,1986-04-06 11:11:11, if the autoSystemTime is False the mothbox will get set to whatever value you put here ONE time and then disable manual time setting (to prevent Groundhog Days) until you set AutosystemTime to False again 
 runtime, 59, put how long you want a photo session to go (in minutes). (make it not a full hour if you are doing things hourly) 
 weekday,1;2;3;4;5;6;7, add or remove days 1-7 for monday through sunday 
 hour,19;21;23;2;4,specify what hour you want things to turn on in 24 timeframe separate multi values with a semicolon
