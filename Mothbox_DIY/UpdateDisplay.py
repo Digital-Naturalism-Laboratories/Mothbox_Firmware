@@ -12,6 +12,7 @@ leaving a 0 power high contrast display to view in the field.
 import sys
 import os
 import csv
+from pathlib import Path
 
 picdir = "/home/pi/Desktop/Mothbox/scripts/RaspberryPi_JetsonNano_Epaper/pic"
 #picdir = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'pic')
@@ -55,7 +56,7 @@ def load_settings(filename):
 
     default_path = "/boot/firmware/mothbox_custom/mothbox_settings.csv"
     file_path=filename
-    global runtime, utc_off, ssid, wifipass, newwifidetected, onlyflash,autoname, manName, manTimezone, autoTime, manTime, bat80, bat20
+    global runtime, utc_off, ssid, wifipass, newwifidetected, onlyflash,autoname, manName, manTimezone, autoTime, manTime, bat80, bat20, bat_Wh, bat_voltage
     utc_off = 0  # this is the offset from UTC time we use to set the alarm
     runtime = 0  # this is how long to run the mothbox in minutes for once we wakeup 0 is forever
     # newwifidetected=False
@@ -106,6 +107,10 @@ def load_settings(filename):
                     manName = value
                 elif setting == "onlyflash":
                     onlyflash = int(value)
+                elif setting == "bat_voltage":
+                    bat_voltage =float(value)                    
+                elif setting == "bat_Wh":
+                    bat_Wh =float(value)
                 elif setting == "bat_80perVolts":
                     bat80 =float(value)
                 elif setting == "bat_20perVolts":
@@ -122,19 +127,35 @@ def load_settings(filename):
         return None
         
         
-def get_control_values(filepath):
-    """Reads key-value pairs from the control file."""
-    control_values = {}
-    with open(filepath, "r") as file:
-        for line in file:
-            key, value = line.strip().split("=")
-            control_values[key] = value
-    return control_values
+CONTROL_ROOT = Path("/boot/firmware/mothbox_custom/system/controls")
 
 
+def read_control(path: Path, key: str, default=None):
+    """
+    Reads a single key=value control file.
+    Safe against missing, empty, or corrupted files.
+    """
+    if not path.exists():
+        return default
+
+    try:
+        with open(path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                if k.strip() == key:
+                    return v.strip()
+    except Exception as e:
+        print(f"⚠️ Warning: Failed reading {path}: {e}")
+
+    return default
 
 
-controlsFpath="/boot/firmware/mothbox_custom/system/controls.txt"
+# ---- Load Controls ----
+
+
 usersettingsFpath="/boot/firmware/mothbox_custom/mothbox_settings.csv"
 
 
@@ -143,9 +164,11 @@ usersettingsFpath="/boot/firmware/mothbox_custom/mothbox_settings.csv"
 
 bat80=12.0
 bat20=11.0
+bat_Wh =1
+bat_voltage=1                                                      
 # Load custom settings
 settings = load_settings(usersettingsFpath)
-control_values = get_control_values(controlsFpath)
+#control_values = get_control_values(controlsFpath)
 
 # -----CHECK THE PHYSICAL SWITCH on the GPIO PINS--------------------
 
@@ -166,15 +189,21 @@ HI Power: like ACTIVE but Assumption is connected not to battery, but unlimited 
 
 
 ### Mothbox Name
-onlyflash = control_values.get("OnlyFlash", "False").lower() == "true"
-LastCalibration = float(control_values.get("LastCalibration", 0))
-computerName = control_values.get("name", "errorname")
+#onlyflash = control_values.get("OnlyFlash", "False").lower() == "true"
+onlyflash = read_control(CONTROL_ROOT / "onlyflash.txt", "onlyflash", "0")
+
+#LastCalibration = float(control_values.get("LastCalibration", 0))
+LastCalibration= float(read_control(CONTROL_ROOT / "lastcalibration.txt", "lastcalibration", 0))
+
+computerName = read_control(CONTROL_ROOT / "name.txt", "name", "errorname")
+#computerName = control_values.get("name", "errorname")
 print(f"Mothbox Name: {computerName}")
 
 
 # We will receive the mode from the control values
 
-mode = control_values.get("mode", "errormode")
+#mode = control_values.get("mode", "errormode")
+mode = read_control(CONTROL_ROOT / "mode.txt", "mode", "ERRORMODE")
 
 print("Current Mothbox MODE: ", mode)
 
@@ -231,26 +260,46 @@ photo_count_int = count_photos("/home/pi/Desktop/Mothbox/photos_backedup")+ coun
 
 
 # Wake Time
-nexttime=int(control_values.get("nextWake",0))
+#nexttime=int(control_values.get("nextWake",0))
+nexttime = int(read_control(CONTROL_ROOT / "nextwake.txt", "nextwake", "-1"))
 
 # Schedule Stuff
-hours=control_values.get("hours", "error")
-weekdays=control_values.get("weekdays", "error")
-mins=control_values.get("minutes", "error")
-runtime=control_values.get("runtime", "error")
+#hours=control_values.get("hours", "error")
+hours = read_control(CONTROL_ROOT / "hours.txt", "hours", "errorhours")
+
+#weekdays=control_values.get("weekdays", "error")
+weekdays = read_control(CONTROL_ROOT / "weekdays.txt", "weekdays", "errorweekdays")
+
+
+#mins=control_values.get("minutes", "error")
+mins = read_control(CONTROL_ROOT / "minutes.txt", "minutes", "errorminutes")
+
+#runtime=control_values.get("runtime", "error")
+runtime = read_control(CONTROL_ROOT / "runtime.txt", "runtime", "erroruntime")
+
 
 
 # UTCoffset
-UTCoff=control_values.get("UTCoff", "error")
+#UTCoff=control_values.get("UTCoff", "error")
+UTCoff= read_control(CONTROL_ROOT / "utc.txt", "utc", "erroUTC")
+
 
 #GPS stuff
-lat=control_values.get("lat", "error")
-lon=control_values.get("lon", "error")
-gpstime=control_values.get("gpstime", "error")
+#lat=control_values.get("lat", "error")
+lat= read_control(CONTROL_ROOT / "lat.txt", "lat", "errolat")
+
+#lon=control_values.get("lon", "error")
+lon= read_control(CONTROL_ROOT / "lon.txt", "lon", "errolon")
+
+#gpstime=control_values.get("gpstime", "error")
+gpstime= read_control(CONTROL_ROOT / "gpstime.txt", "gpstime", "errgpstime")
+
 
 
 #Software Version
-softwareversion=control_values.get("softwareversion", "error")
+#softwareversion=control_values.get("softwareversion", "error")
+softwareversion= read_control(CONTROL_ROOT / "softwareversion.txt", "softwareversion", "errorsoftwareversion")
+
 
 #Battery State
 
@@ -287,6 +336,8 @@ percent = max(0, min(percent, 100))
 
 # Print the result
 print(f"Voltage percentage: {percent:.2f}%")
+
+
 
 
 '''
@@ -347,6 +398,9 @@ percent = max(0, min(percent, 100))
 print(f"Voltage percentage: {percent:.2f}%")
 '''
 
+
+
+
 try:
     logging.info("Mothbox Epaper Display")
     
@@ -356,14 +410,23 @@ try:
     epd.Clear(0xFF)
 
     # Drawing on the image
-    fontHeaders = ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/scientifica/ttf/scientificaBold.ttf', 13)
+    #fontHeaders = ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/scientifica/ttf/scientificaBold.ttf', 13)
+    fontHeaders = ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson_Next/AtkinsonHyperlegibleNext-Regular.otf', 13)
+    #fontHeaders = ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson/Atkinson-Hyperlegible-Regular-102.ttf', 12)
+    fontHeadersSmall = ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson_Next/AtkinsonHyperlegibleNext-Bold.otf', 9)
+
+    
     font8 = ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/clear-sans/TTF/ClearSans-Medium.ttf', 8)
 
     font_bigs=ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/clear-sans/TTF/ClearSans-Bold.ttf',8)
     
     font_robotosemicon10=ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/scientifica/ttf/scientificaBold.ttf',13)
     font_scientifica22=ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/scientifica/ttf/scientificaBold.ttf',22)
+    
+    font_Atkinson19 = ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson_Next/AtkinsonHyperlegibleNext-Bold.otf', 19)
+
     font_Mediumtext=ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/clear-sans/TTF/ClearSans-Medium.ttf',14)
+    font_Mediumtext12=ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/clear-sans/TTF/ClearSans-Regular.ttf',12)
 
     font_roboto10=ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/scientifica/ttf/scientificaBold.ttf',12)
 
@@ -388,10 +451,10 @@ try:
     # Name and State
     # Draw text elements (adjust coordinates to suit portrait layout)
     #draw.text((2,7), "NAME: ", font=font8, fill=0)
-    draw.text((2, -2), "" + computerName, font=font_scientifica22, fill=0)
+    draw.text((2, -2), "" + computerName, font=font_Atkinson19, fill=0)
 
     draw.text((colW,5), "state: ", font=fontHeaders, fill=0)
-    draw.text((colW+4,-2), "   "+mode, font=font_scientifica22, fill=0)
+    draw.text((colW+4,-2), "     "+mode, font=font_Atkinson19, fill=0)
 
     #next wake
     draw.text((2, rowH+3), 'next wake:', font=fontHeaders, fill=0)
@@ -405,17 +468,23 @@ try:
 
     draw.text((2, 3*rowH), "last update: ", font=fontHeaders, fill=0)
     #draw.text((0, 4*rowH), time.strftime('%m-%d %H:%M:%S') + "UTC:"+str(UTCoff), font=fontHeaders, fill=0)
-    draw.text((0, 4*rowH), time.strftime('%m-%d %H:%M') + " UTC:"+str(UTCoff), font=fontHeaders, fill=0)
+    draw.text((0, 4*rowH-5), time.strftime('%m-%d %H:%M') + " UTC:"+str(UTCoff), font=font_Mediumtext12, fill=0)
 
     draw.line([(0,4*rowH+12),(epd.height/2,4*rowH+12)], fill = 0,width = 1)
 
+    draw.text((2, 5.5*rowH), 'RUNTIME: ', font=fontHeadersSmall, fill=0)
+    draw.text((2, 5.3*rowH), '                ' + runtime+ " mins", font=fontHeaders, fill=0)
 
-    draw.text((2, 5.5*rowH), 'RUNTIME: ' + runtime+ " mins", font=fontHeaders, fill=0)
-    draw.text((2, 6.5*rowH), 'DAYS:' + weekdays, font=fontHeaders, fill=0)
-    draw.text((2, 7.5*rowH), 'HOURS:'+hours, font=fontHeaders, fill=0)
+    draw.text((2, 6.5*rowH), 'DAYS:' , font=fontHeadersSmall, fill=0)
+    draw.text((2, 6.3*rowH), '         ' + weekdays, font=fontHeaders, fill=0)
+
+    draw.text((2, 7.5*rowH), 'HOURS:', font=fontHeadersSmall, fill=0)
+    draw.text((2, 7.3*rowH), '         '+hours, font=fontHeaders, fill=0)
+
     
     if(mins!="0"):
-        draw.text((2, 8.5*rowH), 'MINUTES: ' + mins, font=fontHeaders, fill=0)
+        draw.text((2, 8.5*rowH), 'MINUTES: ', font=fontHeadersSmall, fill=0)
+        draw.text((2, 8.3*rowH), '                ' + mins, font=fontHeaders, fill=0)
 
 
 
@@ -427,23 +496,23 @@ try:
     if(voltage==-100):
         draw.text((colW+2, 2*rowH), f"UNKNOWN", font=fontHeaders, fill=0)
     else:
-        draw.text((colW+2, 1.3*rowH), f"     {percent:.0f}%", font=font_scientifica22, fill=0)
+        draw.text((colW+6, 1.4*rowH), f"          {percent:.0f}%", font=font_Atkinson19 , fill=0)
 
     # DISK
     # Add disk space info
-    draw.text((colW+2, 3*rowH+2), f'SD:{used_gb} GB/{total_gb}GB used\n          {photo_count_int} photos', font=fontHeaders, fill=0)
+    draw.text((colW, 3*rowH+2), f'SD:{used_gb}GB/{total_gb}GB used\n          {photo_count_int} photos', font=fontHeaders, fill=0)
 
     # Starting Y position for external info (after previous lines)
-    y_pos=5*rowH+2
+    y_pos=5*rowH+3
     if external_info:
         for line in external_info.strip().split('\n'):
-            draw.text((colW+2, y_pos), line, font=fontHeaders, fill=0)
+            draw.text((colW, y_pos), line, font=fontHeaders, fill=0)
             y_pos += 12  # line spacing
     else:
         draw.text((colW+2, y_pos), "No USB found", font=fontHeaders, fill=0)
 
     #GPS stuff
-    draw.text((colW+2, 7.5*rowH), 'GPS: '+str(lat) +","+str(lon), font=font_robotosemicon10, fill=0)
+    draw.text((colW+2, 7.5*rowH), 'GPS: '+str(lat) +","+str(lon), font=fontHeaders, fill=0)
     #draw.text((+2, 9*rowH), '        '+str(lon), font=font_robotosemicon10, fill=0)
     
     draw.line([(epd.height/2,6.5*rowH+12),(epd.height,6.5*rowH+12)], fill = 0,width = 1)

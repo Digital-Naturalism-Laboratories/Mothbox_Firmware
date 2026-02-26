@@ -28,16 +28,6 @@ GPIO.setup(Relay_Ch3,GPIO.OUT)
 
 print("Setup The Relay Module is [success]")
 
-def get_control_values(filename):
-    """Reads key-value pairs from the control file."""
-    control_values = {}
-    with open(filename, "r") as file:
-        for line in file:
-            key, value = line.strip().split("=")
-            control_values[key] = value
-    return control_values
-
-
 def AttractOn():
     GPIO.output(Relay_Ch3,GPIO.LOW)
     if(onlyflash):
@@ -61,8 +51,8 @@ def AttractOff():
     print("Attract Lights Off\n")
 
 
-control_values = get_control_values("/boot/firmware/mothbox_custom/system/controls.txt")
-onlyflash = control_values.get("OnlyFlash", "True").lower() == "true"
+#control_values = get_control_values("/boot/firmware/mothbox_custom/system/controls.txt")
+#onlyflash = control_values.get("OnlyFlash", "True").lower() == "true"
 #AttractOn()
 AttractOff()
 

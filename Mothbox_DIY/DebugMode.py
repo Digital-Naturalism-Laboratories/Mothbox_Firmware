@@ -17,8 +17,8 @@ import RPi.GPIO as GPIO
 import time
 import datetime
 from datetime import datetime
-
-
+from pathlib import Path
+import os
 print("----------------- Activate DEBUG for DIY-------------------")
 
 now = datetime.now()
@@ -101,16 +101,67 @@ print("WIFI Script execution completed!")
 print("----------------- KEEP PI ON INDEFINITLEY-------------------")
 
 
-with open("/boot/firmware/mothbox_custom/system/controls.txt", "r") as file:
-    lines = file.readlines()
+def atomic_write(path, content):
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(content)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
 
-with open("/boot/firmware/mothbox_custom/system/controls.txt", "w") as file:
-    for line in lines:
-        #print(line)
-        if line.startswith("shutdown_enabled="):
-            file.write("shutdown_enabled=False\n")  # Replace with False
-            print("trying to stop shutdown")
-        else:
-            file.write(line)  # Keep other lines unchanged
+def atomic_update_kv(path, key, value):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
 
-quit()
+    lines = []
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            for line in f:
+                if "=" in line:
+                    lines.append(line)
+
+    found = False
+    for i, line in enumerate(lines):
+        if line.startswith(key + "="):
+            lines[i] = f"{key}={value}\n"
+            found = True
+
+    if not found:
+        lines.append(f"{key}={value}\n")
+
+    atomic_write(path, "".join(lines))
+       
+CONTROL_ROOT = Path("/boot/firmware/mothbox_custom/system/controls")
+
+
+def read_control(path: Path, key: str, default=None):
+    """
+    Reads a single key=value control file.
+    Safe against missing, empty, or corrupted files.
+    """
+    if not path.exists():
+        return default
+
+    try:
+        with open(path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                if k.strip() == key:
+                    return v.strip()
+    except Exception as e:
+        print(f"⚠️ Warning: Failed reading {path}: {e}")
+
+    return default
+
+
+# ---- Load Controls ----
+def unenable_shutdown():
+    atomic_update_kv(
+        os.path.join(CONTROL_ROOT, "shutdown_enabled.txt"),
+        "shutdown_enabled",
+        "false"
+    )
+
+unenable_shutdown()

@@ -54,26 +54,45 @@ import time
 import os, platform
 from pathlib import Path
 
+       
+CONTROL_ROOT = Path("/boot/firmware/mothbox_custom/system/controls")
 
-def get_control_values(filename):
-    """Reads key-value pairs from the control file.
-    Args:
-    filename:  Name of the control file
+
+def read_control(path: Path, key: str, default=None):
     """
-    control_values = {}
-    with open(filename, "r") as file:
-        for line in file:
-            key, value = line.strip().split("=")
-            control_values[key] = value
-    return control_values
+    Reads a single key=value control file.
+    Safe against missing, empty, or corrupted files.
+    """
+    if not path.exists():
+        return default
+
+    try:
+        with open(path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                if k.strip() == key:
+                    return v.strip()
+    except Exception as e:
+        print(f"⚠️ Warning: Failed reading {path}: {e}")
+
+    return default
 
 
 #IF the mothbox is supposed to be off, don't take a photo!
-mode = "ACTIVE"  # possible modes are OFF or DEBUG or ACTIVE or PARTY, active is dddddddddddddefault
+#mode = "ACTIVE"  # possible modes are OFF or DEBUG or ACTIVE or PARTY, active is dddddddddddddefault
+mode = read_control(CONTROL_ROOT / "mode.txt", "mode", "ACTIVE")
 
-thecontrol_values = get_control_values("/boot/firmware/mothbox_custom/system/controls.txt")
-sActive = int(thecontrol_values.get("Active", 1))
-internal_storage_minimum = int(thecontrol_values.get("safetyGB",9)) # This is Gigabytes, below 6 on a raspberry pi 5 can make weird OS problems
+#thecontrol_values = get_control_values("/boot/firmware/mothbox_custom/system/controls.txt")
+#sActive = int(thecontrol_values.get("Active", 1))
+
+#internal_storage_minimum = int(thecontrol_values.get("safetyGB",9)) # This is Gigabytes, below 6 on a raspberry pi 5 can make weird OS problems
+internal_storage_minimum = int(
+    read_control(CONTROL_ROOT / "safetygb.txt", "safetygb", 9)
+)
+
 internal_storage_minimum=internal_storage_minimum-1 # Important, this must be lower than the backup files minimum, or else the whole thing will just stall potential
 extra_photo_storage_minimum=internal_storage_minimum
 # Define paths
@@ -93,27 +112,48 @@ def restart_script():
 
 
 
-def get_control_values(filepath):
-    """Reads key-value pairs from the control file."""
-    control_values = {}
-    with open(filepath, "r") as file:
-        for line in file:
-            key, value = line.strip().split("=")
-            control_values[key] = value
-    return control_values
+def atomic_write(path, content):
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(content)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
 
-def set_last_calibration(filepath):
-    with open(filepath, "r") as file:
-        lines = file.readlines()
+def atomic_update_kv(path, key, value):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
 
-    with open(filepath, "w") as file:
-        for line in lines:
-            print(line)
-            if line.startswith("LastCalibration"):
-                file.write("LastCalibration="+str(time.time())+"\n")  # Replace with False
-                print("reset last calibration")
-            else:
-                file.write(line)  # Keep other lines unchanged
+    lines = []
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            for line in f:
+                if "=" in line:
+                    lines.append(line)
+
+    found = False
+    for i, line in enumerate(lines):
+        if line.startswith(key + "="):
+            lines[i] = f"{key}={value}\n"
+            found = True
+
+    if not found:
+        lines.append(f"{key}={value}\n")
+
+    atomic_write(path, "".join(lines))
+
+#TODO replace with new
+# def set_last_calibration(filepath):
+    # with open(filepath, "r") as file:
+        # lines = file.readlines()
+
+    # with open(filepath, "w") as file:
+        # for line in lines:
+            # print(line)
+            # if line.startswith("LastCalibration"):
+                # file.write("LastCalibration="+str(time.time())+"\n")  # Replace with False
+                # print("reset last calibration")
+            # else:
+                # file.write(line)  # Keep other lines unchanged
 
 def run_cmd(cmd):
     """Run a shell command safely"""
@@ -351,8 +391,9 @@ def run_calibration():
     picam2.stop_preview()
     
     #save last time
-    set_last_calibration(control_values_fpath)
-    
+    #set_last_calibration(control_values_fpath)
+    atomic_update_kv(os.path.join(CONTROL_ROOT, "lastcalibration.txt"), "lastcalibration", str(time.time()))
+
     #save the calibrated settings back to the CSV
     new_settings = {"LensPosition": calib_lens_position, "ExposureTime": calib_exposure, "AnalogueGain": autogain} 
     update_camera_settings(chosen_settings_path, new_settings)
@@ -659,11 +700,19 @@ onlyflash=False
 
 
 
-control_values_fpath = "/boot/firmware/mothbox_custom/system/controls.txt"
-control_values = get_control_values(control_values_fpath)
-onlyflash = control_values.get("OnlyFlash", "True").lower() == "true"
-LastCalibration = float(control_values.get("LastCalibration", 0))
-computerName = control_values.get("name", "wrong")
+#control_values_fpath = "/boot/firmware/mothbox_custom/system/controls.txt"
+#control_values = get_control_values(control_values_fpath)
+
+#onlyflash = control_values.get("OnlyFlash", "True").lower() == "true"
+onlyflash = read_control(CONTROL_ROOT / "onlyflash.txt", "onlyflash", "0")
+
+#LastCalibration = float(control_values.get("LastCalibration", 0))
+LastCalibration= float(read_control(CONTROL_ROOT / "lastcalibration.txt", "lastcalibration", 0))
+
+
+#computerName = control_values.get("name", "wrong")
+computerName = read_control(CONTROL_ROOT / "name.txt", "name", "errorname")
+
 
 if(onlyflash):
     print("operating in always on flash mode")
@@ -768,3 +817,4 @@ takePhoto_Manual()
 picam2.stop()
 
 quit()
+
