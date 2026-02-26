@@ -225,7 +225,7 @@ def count_photos(folder):
                 count += 1
     return count
 
-#time.sleep(6) # need to wait for USB drives to mount
+time.sleep(6) # need to wait for USB drives to mount
 
 
 # Check for external drives

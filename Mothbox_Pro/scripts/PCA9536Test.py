@@ -3,7 +3,7 @@ import time
 
 # I2C setup
 I2C_BUS = 1
-PCA9535_ADDR = 0x20  # Update if needed
+PCA9535_ADDR = 0x22  # Update if needed
 
 # Register addresses
 REG_INPUT_PORT_0  = 0x00

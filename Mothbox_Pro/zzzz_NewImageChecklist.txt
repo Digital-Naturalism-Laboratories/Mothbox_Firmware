@@ -1,6 +1,6 @@
 1) Update background Image
-2) Update controls.txt
-Update versioninfo.txt
+2) Update system/controls/softwareversion.txt
+Update system/versioninfo.txt
 
 3) sudo apt update
 sudo apt update
