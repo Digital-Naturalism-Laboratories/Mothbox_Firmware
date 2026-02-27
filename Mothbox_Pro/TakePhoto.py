@@ -42,7 +42,7 @@ import cv2
 
 import csv
 import sys
-
+import shutil
 import io
 from PIL import Image
 import piexif
@@ -56,6 +56,11 @@ from pathlib import Path
 
        
 CONTROL_ROOT = Path("/boot/firmware/mothbox_custom/system/controls")
+CAMERA_SETTINGS_PATH = "/boot/firmware/mothbox_custom/camera_settings.csv"
+DEFAULT_CAMERA_SETTINGS_PATH = "/boot/firmware/mothbox_custom/system/controls/defaults/default_camera.txt"
+AF_LENS_PATH = CONTROL_ROOT / "aflensposition.txt"
+AF_GAIN_PATH=CONTROL_ROOT / "autogain.txt"
+AF_EXPOSURE_PATH =CONTROL_ROOT / "exposuretime.txt"
 
 
 def read_control(path: Path, key: str, default=None):
@@ -112,19 +117,22 @@ def restart_script():
 
 
 
-def atomic_write(path, content):
-    tmp = path + ".tmp"
+def atomic_write(path: Path, content: str):
+    tmp = path.with_suffix(path.suffix + ".tmp")
+
     with open(tmp, "w") as f:
         f.write(content)
         f.flush()
         os.fsync(f.fileno())
+
     os.replace(tmp, path)
 
-def atomic_update_kv(path, key, value):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+def atomic_update_kv(path: Path, key: str, value):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
 
     lines = []
-    if os.path.exists(path):
+    if path.exists():
         with open(path, "r") as f:
             for line in f:
                 if "=" in line:
@@ -141,20 +149,6 @@ def atomic_update_kv(path, key, value):
 
     atomic_write(path, "".join(lines))
 
-#TODO replace with new
-# def set_last_calibration(filepath):
-    # with open(filepath, "r") as file:
-        # lines = file.readlines()
-
-    # with open(filepath, "w") as file:
-        # for line in lines:
-            # print(line)
-            # if line.startswith("LastCalibration"):
-                # file.write("LastCalibration="+str(time.time())+"\n")  # Replace with False
-                # print("reset last calibration")
-            # else:
-                # file.write(line)  # Keep other lines unchanged
-
 def run_cmd(cmd):
     """Run a shell command safely"""
     subprocess.run(cmd, shell=True, check=False)
@@ -170,114 +164,144 @@ def flashOn():
 
     print("Flash On\n")
 
-  
-def load_camera_settings():
-    """
-    Reads camera settings from a CSV file and converts them to appropriate data types.
+def is_csv_valid(filepath):
+    if not os.path.exists(filepath):
+        return False
+    if os.path.getsize(filepath) < 10:
+        return False
 
-    Args:
-        filepath (str): Path to the CSV file containing camera settings.
-
-    Returns:
-        dict: Dictionary containing camera settings with converted data types.
-
-    Raises:
-        ValueError: If an invalid value is encountered in the CSV file.
-    """
-    global middleexposure, calib_lens_position, calib_exposure
-    
-    #OLD ---> we don't look for external settings anymore since controls are on boot -first look for any updated CSV files on external media, we will prioritize those
-    external_media_paths = ("/media", "/mnt")  # Common external media mount points
-    default_path = "/boot/firmware/mothbox_custom/camera_settings.csv"
-    file_path=default_path
-
-
-    
-    #set the global path to the one we chose
-    chosen_settings_path = file_path
     try:
-        with open(file_path) as csv_file:
+        with open(filepath, newline="") as f:
+            reader = csv.DictReader(f)
+            required = {"SETTING", "VALUE", "DETAILS"}
+            return required.issubset(reader.fieldnames or [])
+    except Exception:
+        return False
+
+
+def restore_default_camera_csv():
+    print("⚠️ Camera settings corrupted — restoring defaults")
+    os.makedirs(os.path.dirname(CAMERA_SETTINGS_PATH), exist_ok=True)
+    shutil.copy2(DEFAULT_CAMERA_SETTINGS_PATH, CAMERA_SETTINGS_PATH)
+
+
+def auto_cast_value(setting, value):
+    """
+    Convert known camera settings to proper types.
+    Everything else: best-effort numeric cast, else string.
+    """
+
+    # Explicit rules
+    if setting in ("AeEnable", "AwbEnable"):
+        return value.lower() in ("1", "true", "yes", "on")
+
+    if setting in ("LensPosition", "AnalogueGain", "ExposureValue"):
+        return float(value)
+
+    if setting in (
+        "ExposureTime", "AwbMode", "AfTrigger",
+        "AfRange", "AfSpeed", "AfMode",
+        "HDR", "HDR_width",
+        "AutoCalibration", "AutoCalibrationPeriod",
+        "ImageFileType", "VerticalFlip",
+        "onlyflash"
+    ):
+        return int(float(value))
+
+    # Best-effort fallback casting:
+    try:
+        if "." in value:
+            return float(value)
+        return int(value)
+    except ValueError:
+        return value
+
+
+def load_camera_settings():
+    global middleexposure, calib_lens_position, calib_exposure
+
+    if not is_csv_valid(CAMERA_SETTINGS_PATH):
+        restore_default_camera_csv()
+
+    try:
+        with open(CAMERA_SETTINGS_PATH, newline="") as csv_file:
             reader = csv.DictReader(csv_file)
             the_camera_settings = {}
-            for row in reader:
-                setting, value, details = row["SETTING"], row["VALUE"], row["DETAILS"]
 
-                # Convert data types based on setting name (adjust as needed)
-                if setting == "LensPosition":
-                    try:
-                        value = float(value)
-                    except ValueError:
-                        raise ValueError(f"Invalid value for LensPosition: {value}")
-                elif setting == "AnalogueGain":
-                    try:
-                        value = float(value)
-                    except ValueError:
-                        raise ValueError(f"Invalid value for AnalogueGain: {value}")
-                elif setting == "ExposureValue":
-                    try:
-                        value = float(value)
-                    except ValueError:
-                        raise ValueError(f"Invalid value for AnalogueGain: {value}")
-                elif setting == "AeEnable" or setting == "AwbEnable":
-                    value = value.lower() == "true"  # Convert to bool (adjust logic if needed)
-                elif setting == "AwbMode" or setting == "AfTrigger" or setting == "AfRange"  or setting == "AfSpeed" or setting == "AfMode":
-                    value=int(value)
-                    #value = getattr(controls.AwbModeEnum, value)  # Access enum value
-                    # Assuming AwbMode is a string representing an enum value
-                    #pass  # No conversion needed for string
-                elif setting == "ExposureTime":
-                    try:
-                        value = int(value)
-                        middleexposure = value
-                        print("middleexposurevalue ", middleexposure)
-                    except ValueError:
-                        raise ValueError(f"Invalid value for ExposureTime: {value}")
-                else:
-                    print(f"Warning: Unknown setting: {setting}. Ignoring.")
+            for row in reader:
+                setting = row.get("SETTING", "").strip()
+                value   = row.get("VALUE", "").strip()
+
+                if not setting:
+                    continue
+
+                value = auto_cast_value(setting, value)
+
+                if setting == "ExposureTime":
+                    middleexposure = value
+                    print("middleexposurevalue", middleexposure)
 
                 the_camera_settings[setting] = value
 
             return the_camera_settings
 
-    except FileNotFoundError as e:
-        print(f"Error: CSV file not found: {file_path}")
-        return None
+    except Exception as e:
+        print(f" Camera settings load failure: {e}")
+        print("️ Reverting to default camera settings")
+
+        restore_default_camera_csv()
+        return load_camera_settings()
+
+
+def atomic_write_csv(path, rows, fieldnames):
+    """
+    Atomically writes CSV file contents.
+    Power-loss safe.
+    """
+    tmp_path = path + ".tmp"
+
+    with open(tmp_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+        f.flush()
+        os.fsync(f.fileno())
+
+    os.replace(tmp_path, path)
+
 
 def update_camera_settings(filename, new_settings):
-  """
-  Updates the values in a CSV file based on a dictionary of new settings.
+    """
+    Safely updates the values in a CSV file using atomic replacement.
+    Power-loss safe.
 
-  Args:
-      filename (str): The name of the CSV file to update.
-      new_settings (dict): A dictionary containing key-value pairs for the new settings.
-  """
+    Args:
+        filename (str): Path to CSV file.
+        new_settings (dict): Dictionary of key → new value
+    """
 
-  # Open the CSV file in read-write mode
-  with open(filename, 'r+') as csvfile:
-    # Create a CSV reader object
-    reader = csv.DictReader(csvfile)
-    # Create an empty list to store modified data
-    updated_data = []
+    # Ensure file exists — if missing, restore defaults first
+    if not is_csv_valid(filename):
+        restore_default_camera_csv()
 
-    # Read all rows from the CSV file
-    for row in reader:
-      # Check if the current row matches a setting to update
-      if row['SETTING'] in new_settings:
-        # Update the value in the current row with the new value from the dictionary
-        row['VALUE'] = new_settings[row['SETTING']]
-      # Append the modified or original row to the updated data list
-      updated_data.append(row)
+    try:
+        with open(filename, newline="") as csvfile:
+            reader = csv.DictReader(csvfile)
+            fieldnames = reader.fieldnames
+            rows = []
 
-    # Clear the file contents and move the pointer to the beginning
-    csvfile.seek(0)
-    csvfile.truncate()
+            for row in reader:
+                setting = row.get("SETTING", "").strip()
+                if setting in new_settings:
+                    row["VALUE"] = str(new_settings[setting])
+                rows.append(row)
 
-    # Create a CSV writer object
-    writer = csv.DictWriter(csvfile, fieldnames=reader.fieldnames)
-    # Write the updated data back to the CSV file
-    writer.writeheader()
-    writer.writerows(updated_data)
+        atomic_write_csv(filename, rows, fieldnames)
 
+    except Exception as e:
+        print(f" Failed updating camera CSV safely: {e}")
+        
+        
 def get_serial_number():
   """
   This function retrieves the Raspberry Pi's serial number from the CPU info file.
@@ -375,17 +399,24 @@ def run_calibration():
     flashOff()
     print("Autofocus completed! "+str(time.time()-afstart))
     md = picam2.capture_metadata()
+    
+    
+
     calib_lens_position = md['LensPosition']
+    atomic_update_kv(AF_LENS_PATH, "aflensposition", calib_lens_position)
     focusstate = md['AfState']
 
     print("LensPosition: "+str(calib_lens_position))
     print(focusstate)
 
 
-    camera_settings["LensPosition"]=calib_lens_position
+    #camera_settings["LensPosition"]=calib_lens_position
     
-    camera_settings["ExposureTime"]=calib_exposure
-    camera_settings["AnalogueGain"]=autogain
+    #camera_settings["ExposureTime"]=calib_exposure
+    atomic_update_kv(AF_EXPOSURE_PATH, "exposuretime", calib_exposure)
+
+    #camera_settings["AnalogueGain"]=autogain
+    atomic_update_kv(AF_GAIN_PATH, "autogain", autogain)
 
     picam2.stop()
     picam2.stop_preview()
@@ -395,8 +426,8 @@ def run_calibration():
     atomic_update_kv(os.path.join(CONTROL_ROOT, "lastcalibration.txt"), "lastcalibration", str(time.time()))
 
     #save the calibrated settings back to the CSV
-    new_settings = {"LensPosition": calib_lens_position, "ExposureTime": calib_exposure, "AnalogueGain": autogain} 
-    update_camera_settings(chosen_settings_path, new_settings)
+    #new_settings = {"LensPosition": calib_lens_position, "ExposureTime": calib_exposure, "AnalogueGain": autogain} 
+    #update_camera_settings(chosen_settings_path, new_settings)
     
     #restart the whole script now because for some reason if we just run the phot taking it is always slightly brighter
     time.sleep(1)
@@ -485,6 +516,7 @@ def takePhoto_Manual():
     picam2.set_controls({"ColourGains": cgains})
    
     middleexposure = camera_settings["ExposureTime"]
+    #middleexposure = calib_exposure  # this is more correct i think, but it's messing it up if it is here!
     exposure_times = list_exposuretimes(middleexposure, num_photos,exposuretime_width)
     print(exposure_times)
     
@@ -520,9 +552,9 @@ def takePhoto_Manual():
         flashOn()
         request = picam2.capture_request(flush=True)
 
-
-        if not onlyflash:
-            flashOff()
+        flashOff()
+        #if not onlyflash:
+            #flashOff()
         flashtime=time.time()-start
 
         pilImage = request.make_image("main")
@@ -569,9 +601,9 @@ def takePhoto_Manual():
           exif_ifd = {#piexif.ExifIFD.DateTimeOriginal: u"2099:09:29 10:10:10",
             #piexif.ExifIFD.LensMake: u"LensMake",
             piexif.ExifIFD.ExposureTime: (1,int(1/(abs(exposure_times[i])/1000000))),
-            piexif.ExifIFD.FocalLength: (int(camera_settings.get("LensPosition")*100), 10),# Purposefully shifted digits for more sig figs
-            piexif.ExifIFD.ISOSpeed: int(camera_settings.get("AnalogueGain")*100),
-            piexif.ExifIFD.ISOSpeedRatings: int(camera_settings.get("AnalogueGain")*100),
+            piexif.ExifIFD.FocalLength: (int(calib_lens_position * 100), 10),
+            piexif.ExifIFD.ISOSpeed: int(calib_gain * 100),
+            piexif.ExifIFD.ISOSpeedRatings: int(calib_gain * 100),
 
             }
           gps_ifd = {
@@ -685,18 +717,13 @@ else:
 
 
 #HDR Controls
-num_photos = 3
+num_photos = 1
 exposuretime_width = 18000
 middleexposure=500 # 500 #minimum exposure time for Hawkeye camera 64mp arducam
 
 
-Relay_Ch1 = 5
-Relay_Ch2 = 19 # Photo flash
-Relay_Ch3 = 9 # 6 UV 
-Relay_Ch4 = 6
-
-global onlyflash
-onlyflash=False
+#global onlyflash
+#onlyflash=False
 
 
 
@@ -704,7 +731,7 @@ onlyflash=False
 #control_values = get_control_values(control_values_fpath)
 
 #onlyflash = control_values.get("OnlyFlash", "True").lower() == "true"
-onlyflash = read_control(CONTROL_ROOT / "onlyflash.txt", "onlyflash", "0")
+#onlyflash = read_control(CONTROL_ROOT / "onlyflash.txt", "onlyflash", "0")
 
 #LastCalibration = float(control_values.get("LastCalibration", 0))
 LastCalibration= float(read_control(CONTROL_ROOT / "lastcalibration.txt", "lastcalibration", 0))
@@ -713,10 +740,10 @@ LastCalibration= float(read_control(CONTROL_ROOT / "lastcalibration.txt", "lastc
 #computerName = control_values.get("name", "wrong")
 computerName = read_control(CONTROL_ROOT / "name.txt", "name", "errorname")
 
-
+'''
 if(onlyflash):
     print("operating in always on flash mode")
-
+'''
 
 
 #------- Setting up camera settings -------------
@@ -739,9 +766,13 @@ camera_settings = load_camera_settings()
 
 calib_lens_position=6
 
-calib_lens_position = camera_settings["LensPosition"]
-calib_exposure = camera_settings["ExposureTime"]
+calib_lens_position = float(read_control(AF_LENS_PATH, "aflensposition", None))
+human_lens_position = camera_settings.get("LensPosition", None)
 
+calib_exposure = float(read_control(AF_EXPOSURE_PATH, "exposuretime", None))
+human_exposure = camera_settings["ExposureTime"]
+
+calib_gain = float(read_control(AF_GAIN_PATH, "autogain", None))
 
 AutoCalibration = camera_settings.pop("AutoCalibration",1) #defaults to what is set above if not in the files being read
 AutoCalibrationPeriod = int(camera_settings.pop("AutoCalibrationPeriod",1000))
@@ -773,8 +804,11 @@ camera_settings = load_camera_settings()
 AutoCalibration = camera_settings.pop("AutoCalibration",1) #defaults to what is set above if not in the files being read
 AutoCalibrationPeriod = int(camera_settings.pop("AutoCalibrationPeriod",1000))
 
-calib_lens_position = camera_settings["LensPosition"]
-calib_exposure = camera_settings["ExposureTime"]
+if AutoCalibration:
+    None
+else:
+    calib_lens_position = human_lens_position
+    calib_exposure = human_exposure
 
 
 #remove settings that aren't actually in picamera2
@@ -785,6 +819,7 @@ onlyflash =int(camera_settings.pop("onlyflash",0))
 
 #HDR settings
 num_photos = int(camera_settings.pop("HDR",num_photos)) #defaults to what is set above if not in the files being read
+
 exposuretime_width = int(camera_settings.pop("HDR_width",exposuretime_width))
 if(num_photos<1 or num_photos==2):
     num_photos=1
@@ -796,6 +831,11 @@ picam2.configure(capture_config)
 
 
 if camera_settings:
+    print(camera_settings)
+    print(calib_lens_position, calib_exposure, calib_gain)
+    camera_settings["LensPosition"] = float(calib_lens_position)
+    camera_settings["ExposureTime"] = int(calib_exposure)
+    camera_settings["AnalogueGain"] = float(calib_gain)
     picam2.set_controls(camera_settings)
 
 picam2.start()
