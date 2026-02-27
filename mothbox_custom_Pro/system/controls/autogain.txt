@@ -1,0 +1,1 @@
+autogain=8.0

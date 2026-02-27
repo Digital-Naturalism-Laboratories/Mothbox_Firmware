@@ -417,6 +417,18 @@ def run_shutdown_pi5():
     """
     Shut down the raspberry pi
     """
+    # Re-lock the other scripts (don't want it to start taking a photo before shutting down)
+    ###------Boot Lock-------------###
+    #create boot lock. This stops other scripts that might get called by cron from running
+
+    BOOT_LOCK = "/run/boot_script_running"
+
+    # create lock
+    with open(BOOT_LOCK, "w") as f:
+        f.write("booting\n")
+
+    #-------------------#
+    
     print("about to launch the shutdown")
     print("but we are running ONE LAST WAKEUP SCHEDULER")
 
@@ -473,12 +485,14 @@ def run_shutdown_pi5():
     else:
       print(stdout.decode())
     '''
-    # Change the mode to "STANDBY" (if we got to this point, the board must have been "ACTIVE" and so now we are switching to "STANDBY"
+    # Change the mode to "STANDBY" (if we got to this point, the board must have been "ACTIVE" and so now we are switching to "STANDBY". This is because OFF mode will just use the fast shutdown script, and DEBUG modes will never shut down
 
     # Write mode to controls.txt
     #set_Mode("/boot/firmware/mothbox_custom/system/controls.txt", "STANDBY")
-    atomic_update_kv(controlsFpath+"controls/mode.txt", "mode", mode)
-
+    
+    mode="STANDBY"
+    atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
+    
     #Epaper
     #Update the Epaper screen if it is available 
     GPIO.cleanup()
@@ -497,12 +511,12 @@ def run_shutdown_pi5():
 
 
     #Give it an extra second in case details need to sink in
-    print("shutting down in 3 seconds")
+    print("shutting down in 6 seconds")
     time.sleep(1)
-    run_script("/home/pi/Desktop/Mothbox/Diagnostics.py 'Shutdown_Check'", show_output=True)
-    time.sleep(1)
+    run_script("/home/pi/Desktop/Mothbox/Diagnostics.py", "Shutdown_Check", show_output=True)
 
-    # subprocess.run(["python", "/home/pi/Desktop/Mothbox/TurnEverythingOff.py"])
+    time.sleep(3)
+
     os.system("sudo shutdown -h now")
 
 
@@ -513,6 +527,21 @@ def run_shutdown_pi5_FAST():
     """
     print("Fast shutdown!")
     print("but we are running ONE LAST WAKEUP SCHEDULER")
+    
+    
+    # Re-lock the other scripts (don't want it to start taking a photo before shutting down)
+    ###------Boot Lock-------------###
+    #create boot lock. This stops other scripts that might get called by cron from running
+
+    BOOT_LOCK = "/run/boot_script_running"
+
+    # create lock
+    with open(BOOT_LOCK, "w") as f:
+        f.write("booting\n")
+
+    #-------------------#
+    
+    
     #Stop big lights from turning on!
     debug_script_path = "/home/pi/Desktop/Mothbox/DebugMode.py"
     # Call the script using subprocess.run
@@ -591,13 +620,14 @@ def enable_shutdown():
         "shutdown_enabled",
         "true"
     )
-
+'''
 def enable_onlyflash():
     atomic_update_kv(
         os.path.join(CONTROL_ROOT, "onlyflash.txt"),
         "onlyflash",
         onlyflash
     )
+'''
 
 def stopcron():
     """Executes the '/home/pi/Desktop/Mothbox/StopCron.py' script."""
@@ -834,8 +864,10 @@ def read_control(key, default=None):
 #                       Main Code
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~###
 
+print()
+print("------------------------------------")
 print("----------------- STARTING Scheduler!-------------------")
-
+print("------------------------------------")
 
 # EEPROM STUFFFFFFFFFF
 # First figure out if this is a Pi4 or a Pi5

@@ -1,1 +1,1 @@
-minutes=0
+minutes=35

@@ -190,7 +190,7 @@ HI Power: like ACTIVE but Assumption is connected not to battery, but unlimited 
 
 ### Mothbox Name
 #onlyflash = control_values.get("OnlyFlash", "False").lower() == "true"
-onlyflash = read_control(CONTROL_ROOT / "onlyflash.txt", "onlyflash", "0")
+#onlyflash = read_control(CONTROL_ROOT / "onlyflash.txt", "onlyflash", "0")
 
 #LastCalibration = float(control_values.get("LastCalibration", 0))
 LastCalibration= float(read_control(CONTROL_ROOT / "lastcalibration.txt", "lastcalibration", 0))
