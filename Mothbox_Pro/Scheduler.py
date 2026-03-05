@@ -278,9 +278,8 @@ def load_settings_for_wakeup():
 
     return settings
 
-
 def load_settings(filename):
-    result = dict(SETTING_DEFAULTS)  # start with safe defaults
+    result = dict(SETTING_DEFAULTS)
     newwifidetected = False
 
     try:
@@ -290,40 +289,43 @@ def load_settings(filename):
                 setting = row["SETTING"]
                 value   = row["VALUE"]
 
-                if setting in ("day", "weekday", "hour", "minute",
-                               "minutes_period", "second"):
-                    result[setting] = value
-                    print(setting + value)
-                elif setting == "runtime":
-                    result["runtime"] = int(value)
-                elif setting == "ssid":
-                    result["ssid"] = value
-                    newwifidetected = True
-                elif setting == "wifipass":
-                    result["wifipass"] = value
-                    newwifidetected = True
-                elif setting == "manualTime":
-                    result["manualTime"] = value
-                elif setting == "autoSystemTime":
-                    result["autoSystemTime"] = value.strip().lower()
-                elif setting == "timezone":
-                    result["timezone"] = value
-                elif setting == "autoname":
-                    result["autoname"] = value.strip().lower()
-                elif setting == "name":
-                    result["name"] = value
-                elif setting == "onlyflash":
-                    result["onlyflash"] = int(value)
-                elif setting == "bat_voltage":
-                    result["bat_voltage"] = float(value)
-                elif setting == "bat_Wh":
-                    result["bat_Wh"] = float(value)
-                elif setting == "bat_80perVolts":
-                    result["bat_80perVolts"] = float(value)
-                elif setting == "bat_20perVolts":
-                    result["bat_20perVolts"] = float(value)
-                else:
-                    print(f"Warning: Unknown setting: {setting}. Ignoring.")
+                try:
+                    if setting in ("day", "weekday", "hour", "minute",
+                                   "minutes_period", "second"):
+                        result[setting] = value
+                        print(setting + value)
+                    elif setting == "runtime":
+                        result["runtime"] = int(value)
+                    elif setting == "ssid":
+                        result["ssid"] = value
+                        newwifidetected = True
+                    elif setting == "wifipass":
+                        result["wifipass"] = value
+                        newwifidetected = True
+                    elif setting == "manualTime":
+                        result["manualTime"] = value
+                    elif setting == "autoSystemTime":
+                        result["autoSystemTime"] = value.strip().lower()
+                    elif setting == "timezone":
+                        result["timezone"] = value
+                    elif setting == "autoname":
+                        result["autoname"] = value.strip().lower()
+                    elif setting == "name":
+                        result["name"] = value
+                    elif setting == "onlyflash":
+                        result["onlyflash"] = int(value)
+                    elif setting == "bat_voltage":
+                        result["bat_voltage"] = float(value)
+                    elif setting == "bat_Wh":
+                        result["bat_Wh"] = float(value)
+                    elif setting == "bat_80perVolts":
+                        result["bat_80perVolts"] = float(value)
+                    elif setting == "bat_20perVolts":
+                        result["bat_20perVolts"] = float(value)
+                    else:
+                        print(f"Warning: Unknown setting: {setting}. Ignoring.")
+                except (ValueError, TypeError):
+                    print(f"WARNING: Could not parse '{setting}' value '{value}', using default {result.get(setting, 'N/A')}")
 
         result["newwifidetected"] = newwifidetected
         return result

@@ -13,6 +13,9 @@ import sys
 import os
 import csv
 from pathlib import Path
+import subprocess
+import re
+
 
 picdir = "/home/pi/Desktop/Mothbox/scripts/RaspberryPi_JetsonNano_Epaper/pic"
 #picdir = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'pic')
@@ -30,103 +33,36 @@ import time
 from PIL import Image,ImageDraw,ImageFont
 import traceback
 
-import board
-import adafruit_ina260
-
-
-#logging.basicConfig(level=logging.DEBUG)
-
+SETTING_DEFAULTS = {
+    "bat_80perVolts": 12.0,
+    "bat_20perVolts": 11.0,
+    "bat_Wh":         1.0,
+    "bat_voltage":    1.0,
+}
 # load in the schedule CSV
 def load_settings(filename):
-    """
-    Reads schedule settings from a CSV file and converts them to appropriate data types.
-    Args:
-        filename (str): Path to the CSV file containing settings.
-
-    Returns:
-        dict: Dictionary containing settings with converted data types.
-
-    Raises:
-        ValueError: If an invalid value is encountered in the CSV file.
-    """
-    # first look for any updated CSV files on external media, we will prioritize those
-
-    #update: not checking for files on external media anymore, because we can edit the boot disk!
-    # old: first look for any updated CSV files on external media, we will prioritize those
-
-    default_path = "/boot/firmware/mothbox_custom/mothbox_settings.csv"
-    file_path=filename
-    global runtime, utc_off, ssid, wifipass, newwifidetected, onlyflash,autoname, manName, manTimezone, autoTime, manTime, bat80, bat20, bat_Wh, bat_voltage
-    utc_off = 0  # this is the offset from UTC time we use to set the alarm
-    runtime = 0  # this is how long to run the mothbox in minutes for once we wakeup 0 is forever
-    # newwifidetected=False
-    onlyflash = 0
+    result = dict(SETTING_DEFAULTS)
     try:
-        # with open(filename) as csv_file:
-        with open(file_path) as csv_file:
+        with open(filename, newline="") as csv_file:
             reader = csv.DictReader(csv_file)
-            settings = {}
             for row in reader:
-                setting, value, details = row["SETTING"], row["VALUE"], row["DETAILS"]
-
-                # Convert data types based on setting name (adjust as needed)
-                if (
-                    setting == "day"
-                    or setting == "weekday"
-                    or setting == "hour"
-                    or setting == "minute"
-                    or setting == "minutes_period"
-                    or setting == "second"
-                ):
-                    # value=int(value)
-                    value = value
-                    print(setting + value)
-                    # value = getattr(controls.AwbModeEnum, value)  # Access enum value
-                    # Assuming AwbMode is a string representing an enum value
-                    # pass  # No conversion needed for string
-                elif setting == "runtime":
-                    runtime = int(value)
-                    print(runtime)
-                elif setting == "utc_off":
-                    utc_off = int(value)
-                elif setting == "ssid":
-                    newwifidetected = True
-                    ssid = value
-                elif setting == "wifipass":
-                    newwifidetected = True
-                    wifipass = value
-                elif setting == "manualTime":
-                    manTime = value
-                elif setting == "autoSystemTime":
-                    autoTime = value.strip().lower()
-                elif setting == "timezone":
-                    manTimezone = value
-                elif setting == "autoname":
-                    autoname = value.strip().lower()
-                elif setting == "name":
-                    manName = value
-                elif setting == "onlyflash":
-                    onlyflash = int(value)
-                elif setting == "bat_voltage":
-                    bat_voltage =float(value)                    
-                elif setting == "bat_Wh":
-                    bat_Wh =float(value)
-                elif setting == "bat_80perVolts":
-                    bat80 =float(value)
-                elif setting == "bat_20perVolts":
-                    bat20 =float(value)
-                else:
-                    print(f"Warning: Unknown setting: {setting}. Ignoring.")
-
-                settings[setting] = value
-
-        return settings
-
-    except FileNotFoundError as e:
+                setting = row["SETTING"]
+                value   = row["VALUE"]
+                try:
+                    if setting == "bat_voltage":
+                        result["bat_voltage"] = float(value)
+                    elif setting == "bat_Wh":
+                        result["bat_Wh"] = float(value)
+                    elif setting == "bat_80perVolts":
+                        result["bat_80perVolts"] = float(value)
+                    elif setting == "bat_20perVolts":
+                        result["bat_20perVolts"] = float(value)
+                except ValueError:
+                    print(f"WARNING: Could not parse '{setting}' value '{value}', using default {result[setting]}")
+        return result
+    except FileNotFoundError:
         print(f"Error: CSV file not found: {filename}")
         return None
-        
-        
 CONTROL_ROOT = Path("/boot/firmware/mothbox_custom/system/controls")
 
 
@@ -161,14 +97,15 @@ usersettingsFpath="/boot/firmware/mothbox_custom/mothbox_settings.csv"
 
 
 
-
-bat80=12.0
-bat20=11.0
-bat_Wh =1
-bat_voltage=1                                                      
-# Load custom settings
 settings = load_settings(usersettingsFpath)
-#control_values = get_control_values(controlsFpath)
+if settings is None:
+    print("Could not load settings, using battery defaults")
+    settings = dict(SETTING_DEFAULTS)
+
+bat80       = settings["bat_80perVolts"]
+bat20       = settings["bat_20perVolts"]
+bat_Wh      = settings["bat_Wh"]
+bat_voltage = settings["bat_voltage"]
 
 # -----CHECK THE PHYSICAL SWITCH on the GPIO PINS--------------------
 
@@ -243,7 +180,7 @@ for part in psutil.disk_partitions():
             if os.path.isdir(photos_folder):
                 photo_count = count_photos(photos_folder)
             #external_info += f"USB: {part.mountpoint}:\n{free_ext}GB free / {total_ext}GB\n" # who cares about mount point on display
-            external_info += f"USB: {used_ext} GB/{total_ext}GB used\n          {photo_count} photos" 
+            external_info += f"USB: {used_ext} GB/{total_ext}GB used\n          {photo_count} photos\n" 
 
         except PermissionError:
             continue  # Some mounts may not allow access
@@ -260,11 +197,14 @@ photo_count_int = count_photos("/home/pi/Desktop/Mothbox/photos_backedup")+ coun
 
 
 # Wake Time
-#nexttime=int(control_values.get("nextWake",0))
-nexttime = int(read_control(CONTROL_ROOT / "nextwake.txt", "nextwake", "-1"))
+
+try:
+    nexttime = int(read_control(CONTROL_ROOT / "nextwake.txt", "nextwake", "-1"))
+except (ValueError, TypeError):
+    print(" Could not parse nextwake, defaulting to -1")
+    nexttime = -1
 
 # Schedule Stuff
-#hours=control_values.get("hours", "error")
 hours = read_control(CONTROL_ROOT / "hours.txt", "hours", "errorhours")
 
 #weekdays=control_values.get("weekdays", "error")
@@ -297,18 +237,14 @@ gpstime= read_control(CONTROL_ROOT / "gpstime.txt", "gpstime", "errgpstime")
 
 
 #Software Version
-#softwareversion=control_values.get("softwareversion", "error")
-softwareversion= read_control(CONTROL_ROOT / "softwareversion.txt", "softwareversion", "errorsoftwareversion")
+softwareversion = read_control(CONTROL_ROOT / "softwareversion.txt", "softwareversion", "5")
 
-
-# Battery State
-v80 = bat80
-v20 = bat20
-voltage = -100
 
 # Determine which voltage reading method to use based on software version
 if softwareversion.startswith("4"):
     # Mothbox DIY (4.x) — INA260 sensor via I2C
+    import board
+    import adafruit_ina260
     try:
         i2c = board.I2C()
         ina260 = adafruit_ina260.INA260(i2c)
@@ -348,8 +284,12 @@ else:
 
 # Calculate battery percentage (same formula for both models)
 # v20 -> 20%, v80 -> 80%, linearly extrapolated and clamped to 0-100%
-percent = 20 + (voltage - v20) * (80 - 20) / (v80 - v20)
-percent = max(0, min(percent, 100))
+if v80 != v20:
+    percent = 20 + (voltage - v20) * (80 - 20) / (v80 - v20)
+    percent = max(0, min(percent, 100))
+else:
+    print("WARNING: bat80 and bat20 are equal, cannot calculate percentage")
+    percent = -1  # will trigger the UNKNOWN display branch...
 print(f"Voltage: {voltage:.2f}V  →  {percent:.0f}%")
 
 try:
@@ -444,7 +384,7 @@ try:
 
     draw.text((colW+2, 1.8*rowH), f"BATTERY:", font=fontHeaders, fill=0)
     
-    if(voltage==-100):
+    if(voltage==-1):
         draw.text((colW+2, 2*rowH), f"UNKNOWN", font=fontHeaders, fill=0)
     else:
         draw.text((colW+6, 1.4*rowH), f"          {percent:.0f}%", font=font_Atkinson19 , fill=0)
