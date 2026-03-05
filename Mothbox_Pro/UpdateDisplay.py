@@ -24,7 +24,7 @@ sys.path.append("/home/pi/Desktop/Mothbox/scripts/RaspberryPi_JetsonNano_Epaper/
 
 import shutil
 
-import RPi.GPIO as GPIO
+
 import psutil
 
 import logging
@@ -109,39 +109,14 @@ bat20       = settings["bat_20perVolts"]
 bat_Wh      = settings["bat_Wh"]
 bat_voltage = settings["bat_voltage"]
 
-# -----CHECK THE PHYSICAL SWITCH on the GPIO PINS--------------------
-
-
-# Set pin numbering mode (BCM or BOARD)
-GPIO.setmode(GPIO.BCM)
-
-'''
-There are several possible modes that a Mothbox can be in
-
-Active: it is currently running a session. Automatic routines go. Wifi stops after 5 mins to save energy.
-Standby: the mothbox pi is shut down, but during the next scheduled session it will become active
-Debug: When the mothbox has power, it will wake up and not shut down until manually turned off. Automatic Cron routines will not run. Lights are default off. Wifi stays on.
-Party: Like debug mode, but it runs a routine to just cycle all the lights
-HI Power: like ACTIVE but Assumption is connected not to battery, but unlimited power supply. Wifi stays on, attempts to upload photos to internet servers automatically.
-
-'''
-
-
-### Mothbox Name
-#onlyflash = control_values.get("OnlyFlash", "False").lower() == "true"
-#onlyflash = read_control(CONTROL_ROOT / "onlyflash.txt", "onlyflash", "0")
-
-#LastCalibration = float(control_values.get("LastCalibration", 0))
 LastCalibration= float(read_control(CONTROL_ROOT / "lastcalibration.txt", "lastcalibration", 0))
 
 computerName = read_control(CONTROL_ROOT / "name.txt", "name", "errorname")
-#computerName = control_values.get("name", "errorname")
 print(f"Mothbox Name: {computerName}")
 
 
 # We will receive the mode from the control values
 
-#mode = control_values.get("mode", "errormode")
 mode = read_control(CONTROL_ROOT / "mode.txt", "mode", "ERRORMODE")
 
 print("Current Mothbox MODE: ", mode)
@@ -244,6 +219,7 @@ softwareversion = read_control(CONTROL_ROOT / "softwareversion.txt", "softwareve
 
 # Determine which voltage reading method to use based on software version
 if softwareversion.startswith("4"):
+    print("detected device: Mothbox DIY")
     # Mothbox DIY (4.x) — INA260 sensor via I2C
     import board
     import adafruit_ina260
@@ -260,7 +236,9 @@ else:
     # Mothbox Pro (5.x) or unknown — read via PCB voltage script
     # Default to Pro behavior if version is unrecognized
     if not softwareversion.startswith("5"):
-        print(f"⚠️ Unrecognized software version '{softwareversion}', defaulting to Mothbox Pro voltage reading")
+        print(f"Unrecognized software version '{softwareversion}', defaulting to Mothbox Pro voltage reading")
+    else:
+        print("detected device: Mothbox PRO")
 
     try:
         result3 = subprocess.run(
@@ -286,8 +264,8 @@ else:
 
 # Calculate battery percentage (same formula for both models)
 # v20 -> 20%, v80 -> 80%, linearly extrapolated and clamped to 0-100%
-if v80 != v20:
-    percent = 20 + (voltage - v20) * (80 - 20) / (v80 - v20)
+if bat80 != bat20:
+    percent = 20 + (voltage - bat20) * (80 - 20) / (bat80 - bat20)
     percent = max(0, min(percent, 100))
 else:
     print("WARNING: bat80 and bat20 are equal, cannot calculate percentage")
@@ -425,7 +403,6 @@ try:
 
     logging.info("Display Go to Sleep...")
     epd.sleep()
-    GPIO.cleanup() #release the GPIO pins to other programs
 
         
 except IOError as e:
