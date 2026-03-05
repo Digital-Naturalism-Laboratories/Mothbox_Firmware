@@ -301,100 +301,56 @@ gpstime= read_control(CONTROL_ROOT / "gpstime.txt", "gpstime", "errgpstime")
 softwareversion= read_control(CONTROL_ROOT / "softwareversion.txt", "softwareversion", "errorsoftwareversion")
 
 
-#Battery State
+# Battery State
+v80 = bat80
+v20 = bat20
+voltage = -100
 
-v80= bat80
-v20= bat20
+# Determine which voltage reading method to use based on software version
+if softwareversion.startswith("4"):
+    # Mothbox DIY (4.x) — INA260 sensor via I2C
+    try:
+        i2c = board.I2C()
+        ina260 = adafruit_ina260.INA260(i2c)
+        voltage = ina260.voltage
+        print("Current: %.2f mA  Voltage: %.2f V  Power: %.2f mW" % (
+            ina260.current, ina260.voltage, ina260.power))
+    except (OSError, ValueError) as e:
+        print("INA260 sensor NOT CONNECTED:", e)
 
-'''
-# Mothbox 4.x version with Adafruit Sensor
-#Check battery level and power
-voltage= -100
-
-try:
-    i2c = board.I2C()  # uses board.SCL and board.SDA
-    # i2c = board.STEMMA_I2C()  # For using the built-in STEMMA QT connector on a microcontroller
-    ina260 = adafruit_ina260.INA260(i2c)
-    voltage=ina260.voltage
-    print("Current: %.2f mA Voltage: %.2f V Power:%.2f mW " % (ina260.current, ina260.voltage, ina260.power))
-
-except (OSError, ValueError) as e:
-    # Handle exceptions like sensor not connected or communication errors
-    print("Sensor NOT CONNECTED  ")
-    
-    
-
-
-# Calculate percentage so that:
-#  - v20 -> 20%
-#  - v80 -> 80%
-# Linearly extrapolate beyond those points
-percent = 20 + (voltage - v20) * (80 - 20) / (v80 - v20)
-
-# Constrain between 0–100%
-percent = max(0, min(percent, 100))
-
-# Print the result
-print(f"Voltage percentage: {percent:.2f}%")
-
-
-'''
-# MB 5.x versions on PCB
-#Check battery level and power
-voltage= -100
-    
-
-# Read actual voltage
-import subprocess
-import re
-try:
-    result3 = subprocess.run(
-        ["python3", "/home/pi/Desktop/Mothbox/scripts/3v3SensorsOn.py"],
-        capture_output=True, text=True, check=True
-    )
-    output3 = result3.stdout.strip()
-except subprocess.CalledProcessError as e:
-    print("Err turning on sensors:", e)
-    output = ""
-
-
-# --- Run the external voltage reading script ---
-try:
-    result = subprocess.run(
-        ["python3", "/home/pi/Desktop/Mothbox/scripts/read_Vin.py"],
-        capture_output=True, text=True, check=True
-    )
-    output = result.stdout.strip()
-except subprocess.CalledProcessError as e:
-    print("Error reading voltage:", e)
-    output = ""
-
-# --- Parse the voltage from the output ---
-# Example line: "Vin Voltage: 12.124 V, Current: 0.942 A"
-match = re.search(r"Voltage:\s*([\d.]+)", output)
-if match:
-    voltage = float(match.group(1))
 else:
-    print("Could not parse voltage from output:", output)
-    voltage = -100.0  # fallback or default
+    # Mothbox Pro (5.x) or unknown — read via PCB voltage script
+    # Default to Pro behavior if version is unrecognized
+    if not softwareversion.startswith("5"):
+        print(f"⚠️ Unrecognized software version '{softwareversion}', defaulting to Mothbox Pro voltage reading")
 
+    try:
+        result3 = subprocess.run(
+            ["python3", "/home/pi/Desktop/Mothbox/scripts/3v3SensorsOn.py"],
+            capture_output=True, text=True, check=True
+        )
+    except subprocess.CalledProcessError as e:
+        print("Error turning on sensors:", e)
 
-print(voltage)
+    try:
+        result = subprocess.run(
+            ["python3", "/home/pi/Desktop/Mothbox/scripts/read_Vin.py"],
+            capture_output=True, text=True, check=True
+        )
+        output = result.stdout.strip()
+        match = re.search(r"Voltage:\s*([\d.]+)", output)
+        if match:
+            voltage = float(match.group(1))
+        else:
+            print("Could not parse voltage from output:", output)
+    except subprocess.CalledProcessError as e:
+        print("Error reading voltage:", e)
 
-
-
-# Calculate percentage so that:
-#  - v20 -> 20%
-#  - v80 -> 80%
-# Linearly extrapolate beyond those points
+# Calculate battery percentage (same formula for both models)
+# v20 -> 20%, v80 -> 80%, linearly extrapolated and clamped to 0-100%
 percent = 20 + (voltage - v20) * (80 - 20) / (v80 - v20)
-
-# Constrain between 0–100%
 percent = max(0, min(percent, 100))
-
-# Print the result
-print(f"Voltage percentage: {percent:.2f}%")
-
+print(f"Voltage: {voltage:.2f}V  →  {percent:.0f}%")
 
 try:
     logging.info("Mothbox Epaper Display")
