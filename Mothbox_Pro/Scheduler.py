@@ -746,32 +746,17 @@ def is_now_in_schedule(settings, runtime_minutes):
 
     return False
 
-#don't use set_timezone anymore
-'''def set_timezone(filepath, tz):
-    with open(filepath, "r") as file:
-        lines = file.readlines()
 
-    with open(filepath, "w") as file:
-        for line in lines:
-            #print(line)
-            if line.startswith("timezone"):
-                file.write("timezone=" + str(tz) + "\n")  # Replace with False
-                print("set name " + tz)
-            else:
-                file.write(line)  # Keep other lines unchanged
-'''
 def update_csv_setting(filename, setting_name, new_value):
     rows = []
     fieldnames = []
     updated = False
 
-    # 1. Read the existing data
     try:
         with open(filename, 'r', newline='') as csv_file:
             reader = csv.DictReader(csv_file)
             fieldnames = reader.fieldnames
             for row in reader:
-                # Check if this is the row we want to update
                 if row["SETTING"] == setting_name:
                     row["VALUE"] = str(new_value)
                     updated = True
@@ -780,17 +765,26 @@ def update_csv_setting(filename, setting_name, new_value):
         print(f"Error: Could not find {filename} to update.")
         return
 
-    # 2. Write the data back if we found the setting
-    if updated:
-        with open(filename, 'w', newline='') as csv_file:
+    if not updated:
+        print(f"Warning: Setting '{setting_name}' not found in CSV.")
+        return
+
+    # Write to a temp file first, then atomically rename over the original
+    tmp = filename + ".tmp"
+    try:
+        with open(tmp, 'w', newline='') as csv_file:
             writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(rows)
+            csv_file.flush()
+            os.fsync(csv_file.fileno())
+        os.replace(tmp, filename)
         print(f"Successfully updated {setting_name} to {new_value}.")
-    else:
-        print(f"Warning: Setting '{setting_name}' not found in CSV.")
-
-
+    except Exception as e:
+        print(f"⚠️ Error writing updated CSV: {e}")
+        # Clean up the temp file if something went wrong
+        if os.path.exists(tmp):
+            os.remove(tmp)
 
 def read_control(key, default=None):
     path = os.path.join(CONTROL_ROOT, f"{key}.txt")
@@ -1094,18 +1088,13 @@ else:
     print("Schedule set by Internal Schedule")
 
 
-runtime = (
-    0  # this is how long to run the mothbox in minutes for once we wakeup, if 0 we did something wrong 
-)
-onlyflash = 0
-
 
 # ~~~~~~~ Do the Scheduling ~~~~~~~~~~~~~~~~~~~~
 
 minute  = settings.get("minute",  "0")
 hour    = settings.get("hour",    "20")
 weekday = settings.get("weekday", "1,2,3,4,5,6,7")
-runtime = int(settings.get("runtime", 0))
+runtime = int(settings.get("runtime", 58))
 
 set_timings(minute, hour, weekday, runtime)
 settings.pop("runtime", None)  # safe delete, no KeyError
