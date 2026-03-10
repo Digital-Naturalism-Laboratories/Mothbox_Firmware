@@ -239,93 +239,102 @@ def find_file(path, filename, depth=1):
             ]
     return None
 
+SETTING_DEFAULTS = {
+    "runtime":      0,
+    "utc_off":      0,
+    "ssid":         None,
+    "wifipass":     None,
+    "manualTime":   "1986-04-06 11:11:11",
+    "autoSystemTime": "true",
+    "timezone":     "Africa/Timbuktu",
+    "autoname":     "true",
+    "name":         "ErrorName",
+    "onlyflash":    0,
+    "bat_voltage":  1.0,
+    "bat_Wh":       10.0,
+    "bat_80perVolts": 2.0,
+    "bat_20perVolts": 1.0,
+}
 
-# load in the schedule CSV
+def load_settings_for_wakeup():
+    """
+    Safely loads settings needed to calculate the next wakeup alarm.
+    Falls back to SETTING_DEFAULTS if the CSV is missing or corrupt.
+    Never returns None.
+    """
+    settings = load_settings(usersettingsFpath)
+
+    if settings is None:
+        print("⚠️ WARNING: Could not load settings for wakeup — using defaults")
+        settings = dict(SETTING_DEFAULTS)
+
+    settings.pop("runtime", None)  # runtime not needed for wakeup scheduling
+    settings.pop("utc_off", None)  # comes from controls, not CSV
+
+    # Normalize semicolons to commas
+    for key, value in settings.items():
+        if isinstance(value, str) and ";" in value:
+            settings[key] = value.replace(";", ",")
+
+    return settings
+
 def load_settings(filename):
-    """
-    Reads schedule settings from a CSV file and converts them to appropriate data types.
-    Args:
-        filename (str): Path to the CSV file containing settings.
+    result = dict(SETTING_DEFAULTS)
+    newwifidetected = False
 
-    Returns:
-        dict: Dictionary containing settings with converted data types.
-
-    Raises:
-        ValueError: If an invalid value is encountered in the CSV file.
-    """
-    # first look for any updated CSV files on external media, we will prioritize those
-
-    #update: not checking for files on external media anymore, because we can edit the boot disk!
-    # old: first look for any updated CSV files on external media, we will prioritize those
-
-    default_path = "/boot/firmware/mothbox_custom/mothbox_settings.csv"
-    file_path=filename
-    global runtime, utc_off, ssid, wifipass, newwifidetected, onlyflash,autoname, manName, manTimezone, autoTime, manTime, bat80, bat20, bat_Wh, bat_voltage
-    runtime = 0  # this is how long to run the mothbox in minutes for once we wakeup 0 is forever
-    # newwifidetected=False
-    onlyflash = 0
     try:
-        # with open(filename) as csv_file:
-        with open(file_path) as csv_file:
+        with open(filename, newline="") as csv_file:
             reader = csv.DictReader(csv_file)
-            settings = {}
             for row in reader:
-                setting, value, details = row["SETTING"], row["VALUE"], row["DETAILS"]
+                setting = row["SETTING"]
+                value   = row["VALUE"]
 
-                # Convert data types based on setting name (adjust as needed)
-                if (
-                    setting == "day"
-                    or setting == "weekday"
-                    or setting == "hour"
-                    or setting == "minute"
-                    or setting == "minutes_period"
-                    or setting == "second"
-                ):
-                    # value=int(value)
-                    value = value
-                    print(setting + value)
-                    # value = getattr(controls.AwbModeEnum, value)  # Access enum value
-                    # Assuming AwbMode is a string representing an enum value
-                    # pass  # No conversion needed for string
-                elif setting == "runtime":
-                    runtime = int(value)
-                    print(runtime)
-                elif setting == "ssid":
-                    newwifidetected = True
-                    ssid = value
-                elif setting == "wifipass":
-                    newwifidetected = True
-                    wifipass = value
-                elif setting == "manualTime":
-                    manTime = value
-                elif setting == "autoSystemTime":
-                    autoTime = value.strip().lower()
-                elif setting == "timezone":
-                    manTimezone = value
-                elif setting == "autoname":
-                    autoname = value.strip().lower()
-                elif setting == "name":
-                    manName = value
-                elif setting == "onlyflash":
-                    onlyflash = int(value)
-                elif setting == "bat_voltage":
-                    bat_voltage =float(value)                    
-                elif setting == "bat_Wh":
-                    bat_Wh =float(value)
-                elif setting == "bat_80perVolts":
-                    bat80 =float(value)
-                elif setting == "bat_20perVolts":
-                    bat20 =float(value)
-                else:
-                    print(f"Warning: Unknown setting: {setting}. Ignoring.")
+                try:
+                    if setting in ("day", "weekday", "hour", "minute",
+                                   "minutes_period", "second"):
+                        result[setting] = value
+                        print(setting + value)
+                    elif setting == "runtime":
+                        result["runtime"] = int(value)
+                    elif setting == "ssid":
+                        result["ssid"] = value
+                        newwifidetected = True
+                    elif setting == "wifipass":
+                        result["wifipass"] = value
+                        newwifidetected = True
+                    elif setting == "manualTime":
+                        result["manualTime"] = value
+                    elif setting == "autoSystemTime":
+                        result["autoSystemTime"] = value.strip().lower()
+                    elif setting == "timezone":
+                        result["timezone"] = value
+                    elif setting == "autoname":
+                        result["autoname"] = value.strip().lower()
+                    elif setting == "name":
+                        result["name"] = value
+                    elif setting == "onlyflash":
+                        result["onlyflash"] = int(value)
+                    elif setting == "bat_voltage":
+                        result["bat_voltage"] = float(value)
+                    elif setting == "bat_Wh":
+                        result["bat_Wh"] = float(value)
+                    elif setting == "bat_80perVolts":
+                        result["bat_80perVolts"] = float(value)
+                    elif setting == "bat_20perVolts":
+                        result["bat_20perVolts"] = float(value)
+                    else:
+                        print(f"Warning: Unknown setting: {setting}. Ignoring.")
+                except (ValueError, TypeError):
+                    print(f"WARNING: Could not parse '{setting}' value '{value}', using default {result.get(setting, 'N/A')}")
 
-                settings[setting] = value
+        result["newwifidetected"] = newwifidetected
+        return result
 
-        return settings
-
-    except FileNotFoundError as e:
+    except FileNotFoundError:
         print(f"Error: CSV file not found: {filename}")
         return None
+    
+
 def run_cmd(cmd):
     """Run a shell command safely"""
     subprocess.run(cmd, shell=True, check=False)
@@ -433,45 +442,14 @@ def run_shutdown_pi5():
     print("but we are running ONE LAST WAKEUP SCHEDULER")
 
     # SCHEDULE WAKEUP AGAIN FOR SECURITY
-    settings = load_settings("/boot/firmware/mothbox_custom/mothbox_settings.csv")
-    if "runtime" in settings:
-        del settings["runtime"]
-
-    print(settings)
-
-    # don't need to modify the hours to UTC like we do for pijuice
-    # Build Cron expression
-    # The cron expression is made of five fields. Each field can have the following values.
-    # minute (0-59) |	hour (0 - 23)	|day of the month (1 - 31)	| month (1 - 12)	| day of the week (0 - 6)
-
-    # Loop through each key-value pair in the dictionary
-    for key, value in settings.items():
-        # Check if the value is a string and contains semicolons
-        if isinstance(value, str) and ";" in value:
-            # Replace semicolons with commas
-            settings[key] = value.replace(";", ",")
-    cron_expression = (
-        str(settings["minute"])
-        + " "
-        + str(settings["hour"])
-        + " "
-        + "*"
-        + " "
-        + "*"
-        + " "
-        + str(settings["weekday"])
-    )
+    settings = load_settings_for_wakeup()
+    cron_expression = build_cron_expression(settings)  # the helper from fix #2
     print(cron_expression)
+
     next_epoch_time = calculate_next_event(cron_expression, utc_off)
-
-    # Clear existing wakeup alarm (assuming sudo access)
     clear_wakeup_alarm()
-
-    print(
-        f"Next wakeup event scheduled for: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(next_epoch_time))}"
-    )
     set_wakeup_alarm(next_epoch_time)
-    print("Wakeup Alarms have been set!")
+    print(f"Next wakeup scheduled for: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(next_epoch_time))}")
 
     ''' # Cutting out GPS check at shutdown, feels not really needed
     # GPS check / 10 second delay
@@ -547,50 +525,15 @@ def run_shutdown_pi5_FAST():
     # Call the script using subprocess.run
     subprocess.run([debug_script_path])
     
-    
     # SCHEDULE WAKEUP AGAIN FOR SECURITY
-    settings = load_settings("/boot/firmware/mothbox_custom/mothbox_settings.csv")
-    if "runtime" in settings:
-        del settings["runtime"]
-    if "utc_off" in settings:
-        del settings["utc_off"]
+    settings = load_settings_for_wakeup()
+    cron_expression = build_cron_expression(settings)  # the helper from fix #2
+    print(cron_expression)
 
-    #print(settings)
-
-    # don't need to modify the hours to UTC like we do for pijuice
-    # Build Cron expression
-    # The cron expression is made of five fields. Each field can have the following values.
-    # minute (0-59) |	hour (0 - 23)	|day of the month (1 - 31)	| month (1 - 12)	| day of the week (0 - 6)
-
-    # Loop through each key-value pair in the dictionary
-    for key, value in settings.items():
-        # Check if the value is a string and contains semicolons
-        if isinstance(value, str) and ";" in value:
-            # Replace semicolons with commas
-            settings[key] = value.replace(";", ",")
-    cron_expression = (
-        str(settings["minute"])
-        + " "
-        + str(settings["hour"])
-        + " "
-        + "*"
-        + " "
-        + "*"
-        + " "
-        + str(settings["weekday"])
-    )
-    print("utc_off ",utc_off)
-    #print(cron_expression)
     next_epoch_time = calculate_next_event(cron_expression, utc_off)
-
-    # Clear existing wakeup alarm (assuming sudo access)
     clear_wakeup_alarm()
-
-    print(
-        f"Next wakeup event scheduled for: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(next_epoch_time))}"
-    )
     set_wakeup_alarm(next_epoch_time)
-    print("Wakeup Alarms have been set!")
+    print(f"Next wakeup scheduled for: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(next_epoch_time))}")
 
 
     #Epaper
@@ -805,32 +748,17 @@ def is_now_in_schedule(settings, runtime_minutes):
 
     return False
 
-#don't use set_timezone anymore
-'''def set_timezone(filepath, tz):
-    with open(filepath, "r") as file:
-        lines = file.readlines()
 
-    with open(filepath, "w") as file:
-        for line in lines:
-            #print(line)
-            if line.startswith("timezone"):
-                file.write("timezone=" + str(tz) + "\n")  # Replace with False
-                print("set name " + tz)
-            else:
-                file.write(line)  # Keep other lines unchanged
-'''
 def update_csv_setting(filename, setting_name, new_value):
     rows = []
     fieldnames = []
     updated = False
 
-    # 1. Read the existing data
     try:
         with open(filename, 'r', newline='') as csv_file:
             reader = csv.DictReader(csv_file)
             fieldnames = reader.fieldnames
             for row in reader:
-                # Check if this is the row we want to update
                 if row["SETTING"] == setting_name:
                     row["VALUE"] = str(new_value)
                     updated = True
@@ -839,17 +767,26 @@ def update_csv_setting(filename, setting_name, new_value):
         print(f"Error: Could not find {filename} to update.")
         return
 
-    # 2. Write the data back if we found the setting
-    if updated:
-        with open(filename, 'w', newline='') as csv_file:
+    if not updated:
+        print(f"Warning: Setting '{setting_name}' not found in CSV.")
+        return
+
+    # Write to a temp file first, then atomically rename over the original
+    tmp = filename + ".tmp"
+    try:
+        with open(tmp, 'w', newline='') as csv_file:
             writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(rows)
+            csv_file.flush()
+            os.fsync(csv_file.fileno())
+        os.replace(tmp, filename)
         print(f"Successfully updated {setting_name} to {new_value}.")
-    else:
-        print(f"Warning: Setting '{setting_name}' not found in CSV.")
-
-
+    except Exception as e:
+        print(f"⚠️ Error writing updated CSV: {e}")
+        # Clean up the temp file if something went wrong
+        if os.path.exists(tmp):
+            os.remove(tmp)
 
 def read_control(key, default=None):
     path = os.path.join(CONTROL_ROOT, f"{key}.txt")
@@ -858,6 +795,12 @@ def read_control(key, default=None):
     vals = get_control_values(path)
     return vals.get(key, default)
 
+
+def build_cron_expression(settings):
+    minute  = settings.get("minute",  "0")
+    hour    = settings.get("hour",    "20")
+    weekday = settings.get("weekday", "1,2,3,4,5,6,7")
+    return f"{minute} {hour} * * {weekday}"
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~####
@@ -904,18 +847,27 @@ default_settingspath = "/boot/firmware/mothbox_custom/system/default_settings.tx
 default_backup_controlspaths="/boot/firmware/mothbox_custom/system/default_backup_controls.txt"
 
 
-# Set up some global variables
-autoname="True"
-manName="ErrorName"
-manTimezone="Africa/Timbuktu"
-autoTime="true"
-manTime="1986-04-06 11:11:11"
-bat80=2.0 # These are bad default values that help us notice if something went wrong
-bat20=1.0
-bat_Wh=10
-bat_voltage=1
+
 # Load custom settings
 settings = load_settings(usersettingsFpath)
+if settings is None:
+    print("CRITICAL: Could not load settings, using defaults")
+    settings = dict(SETTING_DEFAULTS)
+    settings["newwifidetected"] = False
+
+# Unpack explicitly — no hidden globals
+autoname        = settings["autoname"]
+manName         = settings["name"]
+manTimezone     = settings["timezone"]
+autoTime        = settings["autoSystemTime"]
+manTime         = settings["manualTime"]
+bat80           = settings["bat_80perVolts"]
+bat20           = settings["bat_20perVolts"]
+bat_Wh          = settings["bat_Wh"]
+bat_voltage     = settings["bat_voltage"]
+onlyflash       = settings["onlyflash"]
+newwifidetected = settings["newwifidetected"]
+runtime         = settings["runtime"]
 print(settings)
 
 # TODO Change battery settings in controls
@@ -1138,27 +1090,16 @@ else:
     print("Schedule set by Internal Schedule")
 
 
-runtime = (
-    0  # this is how long to run the mothbox in minutes for once we wakeup, if 0 we did something wrong 
-)
-onlyflash = 0
-
 
 # ~~~~~~~ Do the Scheduling ~~~~~~~~~~~~~~~~~~~~
 
-#set_timings("/boot/firmware/mothbox_custom/system/controls.txt", settings["minute"], settings["hour"],settings["weekday"],settings["runtime"])
+minute  = settings.get("minute",  "0")
+hour    = settings.get("hour",    "20")
+weekday = settings.get("weekday", "1,2,3,4,5,6,7")
+runtime = int(settings.get("runtime", 58))
 
-
-
-
-
-set_timings(settings["minute"],
-            settings["hour"],
-            settings["weekday"],
-            settings["runtime"])
-if "runtime" in settings:
-    runtime= int(settings["runtime"])
-    del settings["runtime"]
+set_timings(minute, hour, weekday, runtime)
+settings.pop("runtime", None)  # safe delete, no KeyError
 print("printing schedule settings")
 
 if rpiModel == 4:
@@ -1176,17 +1117,7 @@ if rpiModel == 5:
         if isinstance(value, str) and ";" in value:
             # Replace semicolons with commas
             settings[key] = value.replace(";", ",")
-    cron_expression = (
-        str(settings["minute"])
-        + " "
-        + str(settings["hour"])
-        + " "
-        + "*"
-        + " "
-        + "*"
-        + " "
-        + str(settings["weekday"])
-    )
+    cron_expression = build_cron_expression(settings)
     print(cron_expression)
     print("utc_off ", utc_off)
 
@@ -1208,7 +1139,7 @@ print("Wakeup Alarms have been set!")
 #---------Standby Check - - Check if we should be running now according to schedule, and if not, turn off -------------
 
 if mode == "ACTIVE":  # ignore this if we are in debug mode
-    if is_now_in_schedule(settings, int(runtime)):
+    if is_now_in_schedule(settings, runtime):
         now_is_in_schedule = 1
         print("Active, Within schedule window — staying awake")
     else:

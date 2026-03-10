@@ -29,38 +29,11 @@ if os.path.exists(BOOT_LOCK):
     sys.exit(0)
 
 #-----------------------------##
-import time
-from picamera2 import Picamera2, Preview
-from libcamera import controls
-from libcamera import Transform
-
-import time
-import datetime
-from datetime import datetime, timedelta
-computerName = "mothboxNOTSET"
-import cv2
-
-import csv
-import sys
-import shutil
-import io
-from PIL import Image
-import piexif
-import subprocess
-
 
 import time
 
 import os, platform
 from pathlib import Path
-
-       
-CONTROL_ROOT = Path("/boot/firmware/mothbox_custom/system/controls")
-CAMERA_SETTINGS_PATH = "/boot/firmware/mothbox_custom/camera_settings.csv"
-DEFAULT_CAMERA_SETTINGS_PATH = "/boot/firmware/mothbox_custom/system/controls/defaults/default_camera.txt"
-AF_LENS_PATH = CONTROL_ROOT / "aflensposition.txt"
-AF_GAIN_PATH=CONTROL_ROOT / "autogain.txt"
-AF_EXPOSURE_PATH =CONTROL_ROOT / "exposuretime.txt"
 
 
 def read_control(path: Path, key: str, default=None):
@@ -81,19 +54,52 @@ def read_control(path: Path, key: str, default=None):
                 if k.strip() == key:
                     return v.strip()
     except Exception as e:
-        print(f"⚠️ Warning: Failed reading {path}: {e}")
+        print(f"Warning: Failed reading {path}: {e}")
 
     return default
 
 
+CONTROL_ROOT = Path("/boot/firmware/mothbox_custom/system/controls")
+
 #IF the mothbox is supposed to be off, don't take a photo!
-#mode = "ACTIVE"  # possible modes are OFF or DEBUG or ACTIVE or PARTY, active is dddddddddddddefault
 mode = read_control(CONTROL_ROOT / "mode.txt", "mode", "ACTIVE")
 
-#thecontrol_values = get_control_values("/boot/firmware/mothbox_custom/system/controls.txt")
-#sActive = int(thecontrol_values.get("Active", 1))
+if mode in ("OFF", "STANDBY"):
+    print("Mothbox is in", mode, "mode, not taking photos")
+    quit()
 
-#internal_storage_minimum = int(thecontrol_values.get("safetyGB",9)) # This is Gigabytes, below 6 on a raspberry pi 5 can make weird OS problems
+
+import time
+from picamera2 import Picamera2, Preview
+from libcamera import controls
+from libcamera import Transform
+
+import time
+import datetime
+from datetime import datetime, timedelta
+computerName = "mothboxNOTSET"
+import cv2
+
+import csv
+import sys
+import shutil
+import io
+from PIL import Image
+import piexif
+import subprocess
+
+
+
+       
+CAMERA_SETTINGS_PATH = "/boot/firmware/mothbox_custom/camera_settings.csv"
+DEFAULT_CAMERA_SETTINGS_PATH = "/boot/firmware/mothbox_custom/system/controls/defaults/default_camera.txt"
+AF_LENS_PATH = CONTROL_ROOT / "aflensposition.txt"
+AF_GAIN_PATH=CONTROL_ROOT / "autogain.txt"
+AF_EXPOSURE_PATH =CONTROL_ROOT / "exposuretime.txt"
+
+
+
+
 internal_storage_minimum = int(
     read_control(CONTROL_ROOT / "safetygb.txt", "safetygb", 9)
 )
@@ -180,10 +186,13 @@ def is_csv_valid(filepath):
 
 
 def restore_default_camera_csv():
-    print("⚠️ Camera settings corrupted — restoring defaults")
+    print("Camera settings corrupted — restoring defaults")
+    if not os.path.exists(DEFAULT_CAMERA_SETTINGS_PATH):
+        print("ERROR: Default camera settings file also missing:", DEFAULT_CAMERA_SETTINGS_PATH)
+        return False
     os.makedirs(os.path.dirname(CAMERA_SETTINGS_PATH), exist_ok=True)
     shutil.copy2(DEFAULT_CAMERA_SETTINGS_PATH, CAMERA_SETTINGS_PATH)
-
+    return True
 
 def auto_cast_value(setting, value):
     """
@@ -217,7 +226,7 @@ def auto_cast_value(setting, value):
         return value
 
 
-def load_camera_settings():
+def load_camera_settings(retrying=False):
     global middleexposure, calib_lens_position, calib_exposure
 
     if not is_csv_valid(CAMERA_SETTINGS_PATH):
@@ -246,11 +255,13 @@ def load_camera_settings():
             return the_camera_settings
 
     except Exception as e:
-        print(f" Camera settings load failure: {e}")
-        print("️ Reverting to default camera settings")
-
+        print(f"Camera settings load failure: {e}")
+        if retrying:
+            print("Default camera settings also failed, using empty settings")
+            return {}
+        print("Reverting to default camera settings")
         restore_default_camera_csv()
-        return load_camera_settings()
+        return load_camera_settings(retrying=True)
 
 
 def atomic_write_csv(path, rows, fieldnames):
@@ -491,7 +502,7 @@ def create_dated_folder(base_path):
   return folder_path+"/"
 
 def takePhoto_Manual():
-    global middleexposure, calib_lens_position, calib_exposure
+    global middleexposure, calib_lens_position, calib_exposure, calib_gain
     # LensPosition: Manual focus, Set the lens position.
     now = datetime.now()
     timestamp = now.strftime("%Y_%m_%d__%H_%M_%S")  # Adjust the format as needed
@@ -764,15 +775,14 @@ camera_settings = load_camera_settings()
     
 #before calibration, set these values to the default we read in
 
-calib_lens_position=6
 
-calib_lens_position = float(read_control(AF_LENS_PATH, "aflensposition", None))
+calib_lens_position = float(read_control(AF_LENS_PATH, "aflensposition", 6.0))
 human_lens_position = camera_settings.get("LensPosition", None)
 
-calib_exposure = float(read_control(AF_EXPOSURE_PATH, "exposuretime", None))
+calib_exposure      = float(read_control(AF_EXPOSURE_PATH, "exposuretime", 500))
 human_exposure = camera_settings["ExposureTime"]
 
-calib_gain = float(read_control(AF_GAIN_PATH, "autogain", None))
+calib_gain          = float(read_control(AF_GAIN_PATH, "autogain", 1.0))
 
 AutoCalibration = camera_settings.pop("AutoCalibration",1) #defaults to what is set above if not in the files being read
 AutoCalibrationPeriod = int(camera_settings.pop("AutoCalibrationPeriod",1000))
