@@ -47,8 +47,25 @@ import re
 import RPi.GPIO as GPIO
 import fcntl
 # -----Scheduler Functions-------------------
+def configure_display_for_mode(mode):
+    """
+    Default boot target is multi-user (headless) — set once via:
+        sudo systemctl set-default multi-user.target
+    This function only starts the desktop when explicitly needed (DEBUG/PARTY).
+    """
+    desktop_modes = {"DEBUG", "PARTY"}
 
+    if mode in desktop_modes:
+        print(f"Mode is {mode} — starting graphical desktop for this session")
+        subprocess.run(
+            ["sudo", "systemctl", "start", "graphical.target"],
+            check=False
+        )
+    else:
+        print(f"Mode is {mode} — running headless (multi-user default)")
+        # Nothing to do — headless is already the boot default
 
+        
 def determinePiModel():
 
     # Check Raspberry Pi model using CPU info
@@ -1067,7 +1084,9 @@ if mode=="HI_POW" or mode=="SWITCHES" or mode=="QR_PROG":
     atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
     #set_Mode(controlsFpath, mode)
     print("temp correct mode: ",mode)
-   
+
+# ----- Mode kills desktop mode for everything but DEBUG and PARTY   
+configure_display_for_mode(mode)
 
 
 #------ Log Some Diagnostics with Sensors -----------
