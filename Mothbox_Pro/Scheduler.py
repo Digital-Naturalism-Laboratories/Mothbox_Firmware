@@ -65,6 +65,22 @@ def configure_display_for_mode(mode):
         print(f"Mode is {mode} — running headless (multi-user default)")
         # Nothing to do — headless is already the boot default
 
+
+def configure_wifi_for_mode(mode):
+    """
+    Enable wifi for modes that need it, disable for everything else.
+    Uses existing MothPower scripts.
+    """
+    MOTHPOWER = "/home/pi/Desktop/Mothbox/scripts/MothPower"
+    wifi_modes = {"DEBUG", "PARTY", "HI_POW"}
+
+    if mode in wifi_modes:
+        print(f"Mode is {mode} — enabling wifi")
+        subprocess.run(["bash", f"{MOTHPOWER}/stop_lowpower.sh"], check=False)
+        subprocess.run(["bash", f"{MOTHPOWER}/powerup_wifi.sh"], check=False)
+    else:
+        print(f"Mode is {mode} — disabling wifi")
+        subprocess.run(["bash", f"{MOTHPOWER}/lowpower.sh"], check=False)
         
 def determinePiModel():
 
@@ -1091,6 +1107,7 @@ if mode=="HI_POW" or mode=="SWITCHES" or mode=="QR_PROG":
 # ----- Mode kills desktop mode for everything but DEBUG and PARTY   
 configure_display_for_mode(mode)
 
+configure_wifi_for_mode(mode)
 
 #------ Log Some Diagnostics with Sensors -----------
 
