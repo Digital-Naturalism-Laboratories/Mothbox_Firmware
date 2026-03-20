@@ -258,6 +258,7 @@ def find_file(path, filename, depth=1):
 
 SETTING_DEFAULTS = {
     "runtime":      0,
+    "photo_interval": 1, 
     "utc_off":      0,
     "ssid":         None,
     "wifipass":     None,
@@ -339,6 +340,8 @@ def load_settings(filename):
                         result["bat_80perVolts"] = float(value)
                     elif setting == "bat_20perVolts":
                         result["bat_20perVolts"] = float(value)
+                    elif setting == "photo_interval":
+                        result["photo_interval"] = int(value)
                     else:
                         print(f"Warning: Unknown setting: {setting}. Ignoring.")
                 except (ValueError, TypeError):
@@ -1116,6 +1119,10 @@ minute  = settings.get("minute",  "0")
 hour    = settings.get("hour",    "20")
 weekday = settings.get("weekday", "1,2,3,4,5,6,7")
 runtime = int(settings.get("runtime", 58))
+
+photo_interval = int(settings.get("photo_interval", 1))
+atomic_update_kv(os.path.join(CONTROL_ROOT, "photo_interval.txt"), "photo_interval", photo_interval)
+settings.pop("photo_interval", None)  # don't let it pollute cron builder
 
 set_timings(minute, hour, weekday, runtime)
 settings.pop("runtime", None)  # safe delete, no KeyError

@@ -194,6 +194,7 @@ mins = read_control(CONTROL_ROOT / "minutes.txt", "minutes", "errorminutes")
 #runtime=control_values.get("runtime", "error")
 runtime = read_control(CONTROL_ROOT / "runtime.txt", "runtime", "erroruntime")
 
+photo_interval =read_control(CONTROL_ROOT / "photo_interval.txt", "photo_interval", "errInt")
 
 
 # UTCoffset
@@ -343,18 +344,24 @@ try:
 
     draw.line([(0,4*rowH+12),(epd.height/2,4*rowH+12)], fill = 0,width = 1)
 
-    draw.text((2, 5.5*rowH), 'RUNTIME: ', font=fontHeadersSmall, fill=0)
-    draw.text((2, 5.3*rowH), '                ' + runtime+ " mins", font=fontHeaders, fill=0)
+    draw.text((2, 5*rowH), 'RUN', font=fontHeadersSmall, fill=0)
+    draw.text((2, 5.6*rowH), 'TIME ', font=fontHeadersSmall, fill=0)
+    draw.text((2, 5.4*rowH), '                mins', font=fontHeadersSmall, fill=0)
 
-    draw.text((2, 6.5*rowH), 'DAYS:' , font=fontHeadersSmall, fill=0)
+    draw.text((28, 5.2*rowH), runtime, font=fontHeaders, fill=0)
+    
+    draw.text((78, 5.4*rowH), 'INT  '+photo_interval+" min", font=fontHeadersSmall, fill=0)
+    #draw.text((30, 5.3*rowH), '                ' + photo_interval+ " mins", font=fontHeaders, fill=0)
+
+    draw.text((2, 6.5*rowH), 'DAYS ' , font=fontHeadersSmall, fill=0)
     draw.text((2, 6.3*rowH), '         ' + weekdays, font=fontHeaders, fill=0)
 
-    draw.text((2, 7.5*rowH), 'HOURS:', font=fontHeadersSmall, fill=0)
+    draw.text((2, 7.5*rowH), 'HOURS ', font=fontHeadersSmall, fill=0)
     draw.text((2, 7.3*rowH), '         '+hours, font=fontHeaders, fill=0)
 
     
     if(mins!="0"):
-        draw.text((2, 8.5*rowH), 'MINUTES: ', font=fontHeadersSmall, fill=0)
+        draw.text((2, 8.5*rowH), 'MINUTES ', font=fontHeadersSmall, fill=0)
         draw.text((2, 8.3*rowH), '                ' + mins, font=fontHeaders, fill=0)
 
 
@@ -362,7 +369,7 @@ try:
     #Battery Stuff
     draw.line([(0,.5*rowH+12),(epd.height,.5*rowH+12)], fill = 0,width = 1)
 
-    draw.text((colW+2, 1.8*rowH), f"BATTERY:", font=fontHeaders, fill=0)
+    draw.text((colW+2, 1.8*rowH), f"BATTERY", font=fontHeaders, fill=0)
     
     if(voltage==-1):
         draw.text((colW+2, 2*rowH), f"UNKNOWN", font=fontHeaders, fill=0)

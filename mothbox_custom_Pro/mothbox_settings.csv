@@ -15,3 +15,4 @@ bat_80perVolts,12.0, this is the voltage of the battery when its about 80 percen
 bat_20perVolts,10.5, this is the voltage of the battery when it is about 20 percent full
 wifissid, examplessid, write an SSID of a wifi you want to add to the pi 
 wifipass, examplepass, write the wifi password (not currently implemented)
+photo_interval,1, time in minutes between each photo. Default is 1 minute
