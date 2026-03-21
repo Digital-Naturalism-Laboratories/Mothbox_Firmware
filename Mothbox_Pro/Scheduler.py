@@ -1237,7 +1237,6 @@ print("Wakeup Alarms have been set!")
 
 #-- End Scheduling complete, now set all the other settings
 
-input()
 
 
 #---------Standby Check - - Check if we should be running now according to schedule, and if not, turn off -------------
