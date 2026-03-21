@@ -65,6 +65,22 @@ def configure_display_for_mode(mode):
         print(f"Mode is {mode} — running headless (multi-user default)")
         # Nothing to do — headless is already the boot default
 
+
+def configure_wifi_for_mode(mode):
+    """
+    Enable wifi for modes that need it, disable for everything else.
+    Uses existing MothPower scripts.
+    """
+    MOTHPOWER = "/home/pi/Desktop/Mothbox/scripts/MothPower"
+    wifi_modes = {"DEBUG", "PARTY", "HI_POW"}
+
+    if mode in wifi_modes:
+        print(f"Mode is {mode} — enabling wifi")
+        subprocess.run(["bash", f"{MOTHPOWER}/stop_lowpower.sh"], check=False)
+        subprocess.run(["bash", f"{MOTHPOWER}/powerup_wifi.sh"], check=False)
+    else:
+        print(f"Mode is {mode} — disabling wifi")
+        subprocess.run(["bash", f"{MOTHPOWER}/lowpower.sh"], check=False)
         
 def determinePiModel():
 
@@ -258,6 +274,7 @@ def find_file(path, filename, depth=1):
 
 SETTING_DEFAULTS = {
     "runtime":      0,
+    "photo_interval": 1, 
     "utc_off":      0,
     "ssid":         None,
     "wifipass":     None,
@@ -339,6 +356,8 @@ def load_settings(filename):
                         result["bat_80perVolts"] = float(value)
                     elif setting == "bat_20perVolts":
                         result["bat_20perVolts"] = float(value)
+                    elif setting == "photo_interval":
+                        result["photo_interval"] = int(value)
                     else:
                         print(f"Warning: Unknown setting: {setting}. Ignoring.")
                 except (ValueError, TypeError):
@@ -460,7 +479,8 @@ def run_shutdown_pi5():
 
     # SCHEDULE WAKEUP AGAIN FOR SECURITY
     settings = load_settings_for_wakeup()
-    cron_expression = build_cron_expression(settings)  # the helper from fix #2
+    cron_source = switch_schedule if use_switch_schedule else settings
+    cron_expression = build_cron_expression(cron_source)
     print(cron_expression)
 
     next_epoch_time = calculate_next_event(cron_expression, utc_off)
@@ -544,7 +564,8 @@ def run_shutdown_pi5_FAST():
     
     # SCHEDULE WAKEUP AGAIN FOR SECURITY
     settings = load_settings_for_wakeup()
-    cron_expression = build_cron_expression(settings)  # the helper from fix #2
+    cron_source = switch_schedule if use_switch_schedule else settings
+    cron_expression = build_cron_expression(cron_source)
     print(cron_expression)
 
     next_epoch_time = calculate_next_event(cron_expression, utc_off)
@@ -820,6 +841,64 @@ def build_cron_expression(settings):
     return f"{minute} {hour} * * {weekday}"
 
 
+def read_switch_schedule(switch_vals):
+    """
+    Reads the physical switches to determine the wake schedule.
+    h00-h23 = hours 0-23
+    d0-d6   = days of week (1-7 in cron format, 1=Monday)
+    Runtime is always 59 mins, minute is always 0.
+    """
+    # Collect active hours
+    # Note h00 = midnight (hour 0), h1-h23 = hours 1-23
+    hour_map = {"h00": 0}
+    for i in range(1, 24):
+        hour_map[f"h{i}"] = i
+
+    active_hours = []
+    for switch_name, hour_val in hour_map.items():
+        if int(switch_vals.get(switch_name, 0)) == 1:
+            active_hours.append(hour_val)
+
+    # Collect active days
+    # d0=Sunday, d1=Monday ... d6=Saturday
+    # Cron on this system uses 1=Monday...7=Sunday to match CSV weekday convention
+    # Python weekday: Monday=0...Sunday=6
+    # We'll store as cron-compatible: 1=Monday, 7=Sunday
+    day_cron_map = {
+        "d0": 7,  # Sunday → 7
+        "d1": 1,  # Monday → 1
+        "d2": 2,
+        "d3": 3,
+        "d4": 4,
+        "d5": 5,
+        "d6": 6,  # Saturday → 6
+    }
+
+    active_days = []
+    for switch_name, cron_day in day_cron_map.items():
+        if int(switch_vals.get(switch_name, 0)) == 1:
+            active_days.append(cron_day)
+
+    # Fallback: if no hours or days selected, use safe defaults
+    if not active_hours:
+        print("Switch mode: no hours selected, defaulting to hour 20")
+        active_hours = [19,21,23,2,4] # default schedule
+    if not active_days:
+        print("Switch mode: no days selected, defaulting to all days")
+        active_days = [1, 2, 3, 4, 5, 6, 7]
+
+    hour_str   = ",".join(str(h) for h in sorted(active_hours))
+    weekday_str = ",".join(str(d) for d in sorted(active_days))
+
+    print(f"Switch schedule — hours: {hour_str}, days: {weekday_str}")
+
+    return {
+        "minute":  "0",
+        "hour":    hour_str,
+        "weekday": weekday_str,
+        "runtime": 59,
+    }
+
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~####
 #                       Main Code
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~###
@@ -886,10 +965,6 @@ onlyflash       = settings["onlyflash"]
 newwifidetected = settings["newwifidetected"]
 runtime         = settings["runtime"]
 print(settings)
-
-# TODO Change battery settings in controls
-
-
 
 
 # Change the timezone in controls
@@ -994,7 +1069,6 @@ Off: sw-Active=0 sw-Debug=0- Mothbox will turn off as soon as it can anytime it 
 
 Active: sw-Active=1 -  it is currently running a session. Automatic routines go. Wifi stops after 5 mins to save energy.
 Standby: sw-Active=1 (but not time for session) - the mothbox pi is shut down, but during the next scheduled session it will become active
-*TODO ActiveSwitchSet: sw-Active=1 + sw-U1=1 - the schedule will be overwritten with whatever the physical switches say.
 
 Debug: sw-Debug=1 + sw-Active=1 ------------------ When the mothbox has power, it will wake up and not shut down until manually turned off. Automatic Cron routines will not run. Lights are default off. Wifi stays on.
 Party: sw-Debug=1 + sw-Active=1 + sw-C1=1 ----- subset of debug mode, but it runs a routine to just cycle all the lights
@@ -1054,14 +1128,10 @@ if(sDebug==1 and sC1==1):
     None
     mode="PARTY"
 
-if(sDebug==1 and sU1==1):
-    None
-    mode="QR_PROG"
-
-
-if(sDebug==0 and sU1==1):
-    None
-    mode="SWITCHES"
+#Temporarily disabling QR prog mode
+# ~ if(sDebug==1 and sU1==1):
+    # ~ None
+    # ~ mode="QR_PROG"
 
 
 if(sDebug==0 and sHI==1):
@@ -1075,11 +1145,14 @@ atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
 
 # ----------END SWITCH CHECK----------------
 
+use_switch_schedule = (sU1 == 1)
+print("Use switch schedule:", use_switch_schedule)
+
 
 # TODO - Implement these modes I haven't coded for yet
 # for now, temp solution
 
-if mode=="HI_POW" or mode=="SWITCHES" or mode=="QR_PROG":
+if mode=="HI_POW" or mode=="QR_PROG":
     mode="ACTIVE"
     atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
     #set_Mode(controlsFpath, mode)
@@ -1088,6 +1161,7 @@ if mode=="HI_POW" or mode=="SWITCHES" or mode=="QR_PROG":
 # ----- Mode kills desktop mode for everything but DEBUG and PARTY   
 configure_display_for_mode(mode)
 
+configure_wifi_for_mode(mode)
 
 #------ Log Some Diagnostics with Sensors -----------
 
@@ -1100,26 +1174,34 @@ run_script("/home/pi/Desktop/Mothbox/Diagnostics.py", "Startup_Check", show_outp
 # ~~~~~~~~~~~~ Figuring out Scheduling Details ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~ Pi 5 specific things to change cron-like commands to the next UTC target
 
-# User Switch Schedule
-if( mode=="SWITCHES"):
-    None
-    print("Schedule Set by User Switches")
-    #TODO - actually change the code so the user switches determine the schedule
-else:
-    print("Schedule set by Internal Schedule")
+
 
 
 
 # ~~~~~~~ Do the Scheduling ~~~~~~~~~~~~~~~~~~~~
+switch_schedule = {}
+if use_switch_schedule:
+    print("Schedule set by physical switches")
+    switch_schedule = read_switch_schedule(switch_vals)
+    minute  = switch_schedule["minute"]
+    hour    = switch_schedule["hour"]
+    weekday = switch_schedule["weekday"]
+    runtime = switch_schedule["runtime"]
+else:
+    print("Schedule set by internal CSV settings")
+    minute  = settings.get("minute",  "0")
+    hour    = settings.get("hour",    "20")
+    weekday = settings.get("weekday", "1,2,3,4,5,6,7")
+    runtime = int(settings.get("runtime", 58))
 
-minute  = settings.get("minute",  "0")
-hour    = settings.get("hour",    "20")
-weekday = settings.get("weekday", "1,2,3,4,5,6,7")
-runtime = int(settings.get("runtime", 58))
+photo_interval = int(settings.get("photo_interval", 1))
+atomic_update_kv(os.path.join(CONTROL_ROOT, "photo_interval.txt"), "photo_interval", photo_interval)
+settings.pop("photo_interval", None)  # don't let it pollute cron builder
 
 set_timings(minute, hour, weekday, runtime)
 settings.pop("runtime", None)  # safe delete, no KeyError
 print("printing schedule settings")
+
 
 if rpiModel == 4:
     print("pi4 not supported anymore, it won't be able to wake itself")
@@ -1136,7 +1218,9 @@ if rpiModel == 5:
         if isinstance(value, str) and ";" in value:
             # Replace semicolons with commas
             settings[key] = value.replace(";", ",")
-    cron_expression = build_cron_expression(settings)
+    cron_source = switch_schedule if use_switch_schedule else settings
+    cron_expression = build_cron_expression(cron_source)
+    
     print(cron_expression)
     print("utc_off ", utc_off)
 
@@ -1157,22 +1241,17 @@ print("Wakeup Alarms have been set!")
 
 #---------Standby Check - - Check if we should be running now according to schedule, and if not, turn off -------------
 
-if mode == "ACTIVE":  # ignore this if we are in debug mode
-    if is_now_in_schedule(settings, runtime):
+if mode == "ACTIVE":
+    schedule_to_check = switch_schedule if use_switch_schedule else settings
+    if is_now_in_schedule(schedule_to_check, runtime):
         now_is_in_schedule = 1
-        print("Active, Within schedule window — staying awake")
+        print("Active, Within schedule window - staying awake")
     else:
         now_is_in_schedule = 0
-        print("Active, but outside schedule window, STANDBY mode — shutting down")
-        mode="STANDBY"
-        # Write mode to controls.txt
-        #set_Mode(controlsFpath, mode)
+        print("Active, but outside schedule window, STANDBY mode - shutting down")
+        mode = "STANDBY"
         atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
-        # Flashing Sequence to indicate to user we are in Standby mode
-        # Have to use non boot locked versions
         run_cmd("python /home/pi/Desktop/Mothbox/scripts/blink_standby.py")
-        #input("wait debug")
-        #----- End Flash ----
         run_shutdown_pi5_FAST()
         quit()
 
@@ -1260,7 +1339,7 @@ if os.path.exists(BOOT_LOCK):
 ###--------------------------------------###
 
 
-if runtime > 0 and mode != "DEBUG":
+if runtime > 0 and mode not in ("DEBUG", "PARTY"):
     enable_shutdown()
     time.sleep(0.05)
     print("Stuff will run for " + str(runtime) + " minutes before shutdown")

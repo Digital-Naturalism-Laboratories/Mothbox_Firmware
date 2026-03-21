@@ -1,2 +1,3 @@
 #!/bin/bash
-rfkill unblock wifi
+#rfkill unblock wifi
+/usr/sbin/rfkill unblock wifi

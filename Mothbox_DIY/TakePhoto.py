@@ -35,6 +35,52 @@ import time
 import os, platform
 from pathlib import Path
 
+CONTROL_ROOT = Path("/boot/firmware/mothbox_custom/system/controls")
+LAST_PHOTO_FILE = CONTROL_ROOT / "last_photo_time.txt"
+
+
+def get_photo_interval():
+    path = CONTROL_ROOT / "photo_interval.txt"  # consistent with rest of file
+    if not path.exists():
+        return 1
+    with open(path) as f:
+        for line in f:
+            if line.startswith("photo_interval="):
+                try:
+                    return int(line.split("=", 1)[1].strip())
+                except ValueError:
+                    return 1
+    return 1
+
+
+def is_photo_due():
+    interval_mins = get_photo_interval()
+    if interval_mins <= 1:
+        return True  # Fast path — every minute, no need to check
+
+    if not os.path.exists(LAST_PHOTO_FILE):
+        return True  # First photo ever, go ahead
+
+    try:
+        with open(LAST_PHOTO_FILE) as f:
+            last = float(f.read().strip())
+        elapsed_mins = (time.time() - last) / 60.0
+        threshold = interval_mins - 0.55  # Allow up to 33s early
+        print(f"Photo interval check: {elapsed_mins:.2f} min elapsed, threshold is {threshold:.1f} min (interval={interval_mins})")
+        return elapsed_mins >= threshold
+    except (ValueError, IOError):
+        return True  # If anything goes wrong reading the file, take the photo
+
+def record_photo_taken():
+    try:
+        with open(LAST_PHOTO_FILE, "w") as f:
+            f.write(str(time.time()))
+            f.flush()
+            os.fsync(f.fileno())
+    except IOError as e:
+        print(f"Warning: could not write last_photo_time: {e}")
+
+
 
 def read_control(path: Path, key: str, default=None):
     """
@@ -59,7 +105,6 @@ def read_control(path: Path, key: str, default=None):
     return default
 
 
-CONTROL_ROOT = Path("/boot/firmware/mothbox_custom/system/controls")
 
 #IF the mothbox is supposed to be off, don't take a photo!
 mode = read_control(CONTROL_ROOT / "mode.txt", "mode", "ACTIVE")
@@ -67,6 +112,13 @@ mode = read_control(CONTROL_ROOT / "mode.txt", "mode", "ACTIVE")
 if mode in ("OFF", "STANDBY"):
     print("Mothbox is in", mode, "mode, not taking photos")
     quit()
+
+# Check and see if we should be taking a photo right now
+if not is_photo_due():
+    print(f"Photo not due yet (interval={get_photo_interval()} min). Skipping.")
+    sys.exit(0)
+
+
 
 
 import time
@@ -434,7 +486,7 @@ def run_calibration():
     
     #save last time
     #set_last_calibration(control_values_fpath)
-    atomic_update_kv(os.path.join(CONTROL_ROOT, "lastcalibration.txt"), "lastcalibration", str(time.time()))
+    atomic_update_kv(CONTROL_ROOT / "lastcalibration.txt", "lastcalibration", str(time.time()))
 
     #save the calibrated settings back to the CSV
     #new_settings = {"LensPosition": calib_lens_position, "ExposureTime": calib_exposure, "AnalogueGain": autogain} 
@@ -865,6 +917,6 @@ takePhoto_Manual()
 
 
 picam2.stop()
-
+record_photo_taken()  # Only called on successful capture completion
 quit()
 
