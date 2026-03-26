@@ -114,34 +114,31 @@ def get_storage_info(path):
         return 0, 0  # Handle non-existent or inaccessible storages
 
 def find_largest_external_storage():
-    """
-    Finds the largest external storage device connected to the Raspberry Pi.
-    Returns:
-        The path to the largest storage device or None if none is found.
-    """
     largest_storage = None
     largest_size = 0
 
-    for mount_point in os.listdir("/media/pi"):
-        path = Path(f"/media/pi/{mount_point}")
-        # Check if the mount point is actually mounted
-        if is_mounted(path):
-            if path.is_dir():
-                total_size, available_size = get_storage_info(path)
-                print(path)
-                print(available_size)
-                if available_size > largest_size:
-                    largest_storage = path
-                    largest_size = available_size
-            """
-      if total_size > largest_size:
-        largest_storage = path
-        largest_size = total_size
-      """
-    print("Largest Storage: " + str(largest_storage))
-    print(largest_size)
-    return largest_storage
+    # CHANGE: Look in /media instead of /media/pi
+    for mount_point in os.listdir("/media"):
+        path = Path(f"/media/{mount_point}")
+        
+        # SAFETY: Skip the 'pi' folder itself if it exists, and ignore the SD card
+        if mount_point == "pi" or "mmcblk" in mount_point:
+            continue
 
+        if is_mounted(path) and path.is_dir():
+            total_size, available_size = get_storage_info(path)
+            
+            # SAFETY: Ignore 0GB ghost drives
+            if total_size == 0:
+                continue
+
+            if available_size > largest_size:
+                largest_storage = path
+                largest_size = available_size
+                
+    return largest_storage
+    
+    
 def is_mounted(path):
   """
   Checks if the given path is currently mounted.
@@ -503,13 +500,21 @@ if __name__ == "__main__":
     """
   Finds storage capacity of all external drives and ranks them by size.
   """
-    disks = {}  # Dictionary to store disk name and capacity
-    # Check potential mount points for external drives (adjust based on your system)
-    for mount_point in os.listdir("/media/pi"):
-        path = Path(f"/media/pi/{mount_point}")
+    disks = {}  
+    # CHANGE: Look in /media instead of /media/pi
+    for mount_point in os.listdir("/media"):
+        path = Path(f"/media/{mount_point}")
+        
+        # SAFETY: Ignore internal SD card and the 'pi' subdirectory
+        if mount_point == "pi" or "mmcblk" in mount_point:
+            continue
+
         if path.is_dir() and is_mounted(path):
             total_size, available_size = get_storage_info(path)
-            disks[path] = total_size, available_size
+            
+            # SAFETY: Only add if it's a real drive with capacity
+            if total_size > 0:
+                disks[path] = total_size, available_size
 
     # Sort disks by capacity (descending)
     # Check if any disks were found before sorting and printing

@@ -145,22 +145,30 @@ time.sleep(6) # need to wait for USB drives to mount
 # Check for external drives
 external_info = ""
 for part in psutil.disk_partitions():
-    # Skip system partitions
-    if part.mountpoint.startswith('/media') or part.mountpoint.startswith('/mnt'):
+    # 1. Only look at /media or /mnt
+    # 2. Safety: Ignore anything that is an internal SD card (mmcblk)
+    if (part.mountpoint.startswith('/media') or part.mountpoint.startswith('/mnt')) and "mmcblk" not in part.device:
         try:
             usage = shutil.disk_usage(part.mountpoint)
             total_ext = usage.total // (2**30)
+            
+            # Ignore ghost drives (0GB)
+            if total_ext == 0:
+                continue 
+
             free_ext = usage.free // (2**30)
-            used_ext= total_ext-free_ext
-            photos_folder = os.path.join(part.mountpoint, "photos_backup_"+computerName)
-            photo_count=0
+            used_ext = total_ext - free_ext
+            photos_folder = os.path.join(part.mountpoint, "photos_backup_" + computerName)
+            photo_count = 0
+            
             if os.path.isdir(photos_folder):
                 photo_count = count_photos(photos_folder)
-            #external_info += f"USB: {part.mountpoint}:\n{free_ext}GB free / {total_ext}GB\n" # who cares about mount point on display
+                
             external_info += f"USB: {used_ext} GB/{total_ext}GB used\n          {photo_count} photos\n" 
 
         except PermissionError:
-            continue  # Some mounts may not allow access
+            continue
+            
 
 #internal disk
 total, used, free = shutil.disk_usage("/")
