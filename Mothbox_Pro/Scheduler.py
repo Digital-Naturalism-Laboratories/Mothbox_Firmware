@@ -1100,6 +1100,13 @@ print("C1:",     sC1)
 print("U1:",     sU1)
 print("HI:",     sHI)
 
+# Initialize scheduling variables early so shutdown functions can safely reference them
+# even if called before the scheduling block is reached
+use_switch_schedule = (sU1 == 1)
+switch_schedule = {}
+print("Use switch schedule:", use_switch_schedule)
+
+
 # Read UTC offset from new control layout
 utc_off = float(read_control("utc", 0))
 
@@ -1145,8 +1152,6 @@ atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
 
 # ----------END SWITCH CHECK----------------
 
-use_switch_schedule = (sU1 == 1)
-print("Use switch schedule:", use_switch_schedule)
 
 
 # TODO - Implement these modes I haven't coded for yet
