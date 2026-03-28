@@ -1112,80 +1112,16 @@ use_switch_schedule = (sU1 == 1)
 switch_schedule = {}
 print("Use switch schedule:", use_switch_schedule)
 
-# Read UTC offset from new control layout
-utc_off = float(read_control("utc", 0))
-
-#### Check OFF mode
-if sActive == 0:
-    mode = "OFF"
-    print("should go to off!")
-
-if mode == "OFF":
-    atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
-    run_shutdown_pi5_FAST()
-    quit()
-
-# If Active Switch is OFF, it should never make it past here
-
-
-#### Check ACtive Modes
-# Now check for subsets of Active Mode, like Party Mode or Debug
-# TODO
-
-if(sDebug==1):
-    None
-    mode="DEBUG"
-
-if(sDebug==1 and sC1==1):
-    None
-    mode="PARTY"
-
-#Temporarily disabling QR prog mode
-# ~ if(sDebug==1 and sU1==1):
-    # ~ None
-    # ~ mode="QR_PROG"
-
-
-if(sDebug==0 and sHI==1):
-    None
-    mode="HI_POW"
-
-print("Mothbox mode is:  "+ mode)
-# Write mode to controls.txt
-#set_Mode(controlsFpath, mode)
-atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
-
 # ----------END SWITCH CHECK----------------
 
 
-
-# TODO - Implement these modes I haven't coded for yet
-# for now, temp solution
-
-if mode=="HI_POW" or mode=="QR_PROG":
-    mode="ACTIVE"
-    atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
-    #set_Mode(controlsFpath, mode)
-    print("temp correct mode: ",mode)
-
-# ----- Mode kills desktop mode for everything but DEBUG and PARTY   
-configure_display_for_mode(mode)
-
-configure_wifi_for_mode(mode)
-
-#------ Log Some Diagnostics with Sensors -----------
-
-run_script("/home/pi/Desktop/Mothbox/Diagnostics.py", "Startup_Check", show_output=True)
-
-
+# Read UTC offset from new control layout
+utc_off = float(read_control("utc", 0))
 
 
 
 # ~~~~~~~~~~~~ Figuring out Scheduling Details ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~ Pi 5 specific things to change cron-like commands to the next UTC target
-
-
-
 
 
 # ~~~~~~~ Do the Scheduling ~~~~~~~~~~~~~~~~~~~~
@@ -1246,6 +1182,78 @@ set_wakeup_alarm(next_epoch_time)
 print("Wakeup Alarms have been set!")
 
 #-- End Scheduling complete, now set all the other settings
+
+
+
+
+### --- MODE LOGIC ----####
+
+#### Check OFF mode
+if sActive == 0:
+    mode = "OFF"
+    print("should go to off!")
+
+if mode == "OFF":
+    atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
+    run_shutdown_pi5_FAST()
+    quit()
+
+# If Active Switch is OFF, it should never make it past here
+
+
+#### Check ACtive Modes
+# Now check for subsets of Active Mode, like Party Mode or Debug
+# TODO
+
+if(sDebug==1):
+    None
+    mode="DEBUG"
+
+if(sDebug==1 and sC1==1):
+    None
+    mode="PARTY"
+
+#Temporarily disabling QR prog mode
+# ~ if(sDebug==1 and sU1==1):
+    # ~ None
+    # ~ mode="QR_PROG"
+
+
+if(sDebug==0 and sHI==1):
+    None
+    mode="HI_POW"
+
+print("Mothbox mode is:  "+ mode)
+# Write mode to controls.txt
+#set_Mode(controlsFpath, mode)
+atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
+
+
+
+# TODO - Implement these modes I haven't coded for yet
+# for now, temp solution
+
+if mode=="HI_POW" or mode=="QR_PROG":
+    mode="ACTIVE"
+    atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
+    #set_Mode(controlsFpath, mode)
+    print("temp correct mode: ",mode)
+
+# ----- Mode kills desktop mode for everything but DEBUG and PARTY   
+configure_display_for_mode(mode)
+
+configure_wifi_for_mode(mode)
+
+
+####---- END MODE LOGIC----#
+
+
+
+#------ Log Some Diagnostics with Sensors -----------
+
+run_script("/home/pi/Desktop/Mothbox/Diagnostics.py", "Startup_Check", show_output=True)
+
+
 
 
 
