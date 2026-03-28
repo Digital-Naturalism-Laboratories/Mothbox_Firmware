@@ -588,7 +588,7 @@ def run_shutdown_pi5_FAST():
     else:
       print(stdout.decode())
 
-
+    #input()
 
     # subprocess.run(["python", "/home/pi/Desktop/Mothbox/TurnEverythingOff.py"])
     os.system("sudo shutdown -h now")
@@ -938,6 +938,10 @@ controlsFpath="/boot/firmware/mothbox_custom/system"
 CONTROL_ROOT = os.path.join(controlsFpath, "controls")
 os.makedirs(CONTROL_ROOT, exist_ok=True)
 
+# Safe defaults — will be properly set after switch reading
+use_switch_schedule = False
+switch_schedule = {}
+
 usersettingsFpath="/boot/firmware/mothbox_custom/mothbox_settings.csv"
 default_settingspath = "/boot/firmware/mothbox_custom/system/default_settings.txt"
 default_backup_controlspaths="/boot/firmware/mothbox_custom/system/default_backup_controls.txt"
@@ -1094,6 +1098,8 @@ sC1     = int(switch_vals.get("C1", 0))
 sU1     = int(switch_vals.get("U1", 0))
 sHI     = int(switch_vals.get("HI", 0))
 
+
+
 print("Active:", sActive)
 print("Debug:",  sDebug)
 print("C1:",     sC1)
@@ -1105,7 +1111,6 @@ print("HI:",     sHI)
 use_switch_schedule = (sU1 == 1)
 switch_schedule = {}
 print("Use switch schedule:", use_switch_schedule)
-
 
 # Read UTC offset from new control layout
 utc_off = float(read_control("utc", 0))
