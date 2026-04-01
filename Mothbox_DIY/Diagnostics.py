@@ -106,8 +106,10 @@ def run_script(script_path, show_output=True):
         print(f" Error running {script_path}: {e.stderr.strip() if e.stderr else 'Unknown error'}")
 
 # --- Run diagnostic modules ---
+run_script("/home/pi/Desktop/Mothbox/scripts/mbDIYINA_voltage.py", show_output=True)
 run_script("/home/pi/Desktop/Mothbox/scripts/read5V.py", show_output=True)
 run_script("/home/pi/Desktop/Mothbox/scripts/readCPUTemperature.py", show_output=True)
 
 
 print("--end diagnostics------------------------------------\n")
+
