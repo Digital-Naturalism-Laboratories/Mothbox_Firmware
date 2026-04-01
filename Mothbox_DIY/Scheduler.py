@@ -558,9 +558,9 @@ def run_shutdown_pi5_FAST():
     
     
     #Stop big lights from turning on!
-    debug_script_path = "/home/pi/Desktop/Mothbox/DebugMode.py"
+    offlight_script_path = "/home/pi/Desktop/Mothbox/AttractOff.py"
     # Call the script using subprocess.run
-    subprocess.run([debug_script_path])
+    subprocess.run([offlight_script_path])
     
     # SCHEDULE WAKEUP AGAIN FOR SECURITY
     settings = load_settings_for_wakeup()
@@ -1319,10 +1319,10 @@ if mode == "OFF": #it shouldn't have gotten here if in OFF mode, but just extra 
     if rpiModel == 4:
         print("rpi4 no longer supported")
         run_shutdown_pi5_FAST()
-        
+        quit()
     if rpiModel == 5:
         run_shutdown_pi5()
-    # quit()
+        quit()
 elif mode == "DEBUG":
     print("System is in DEBUG mode - keeping power and wifi on and turning cron off")
     # Define the path to your script (replace 'path/to/script' with the actual path)
