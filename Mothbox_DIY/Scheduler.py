@@ -1058,7 +1058,9 @@ if(autoname=="true"):
     atomic_update_kv(os.path.join(CONTROL_ROOT, "name.txt"), "name", unique_name)
 else:
   computerName=manName
+  atomic_update_kv(os.path.join(CONTROL_ROOT, "name.txt"), "name", manName)  # ← add this
   print(f"manual name for Mothbox: {computerName}")
+  
 # ---- End figure out name -----
 
 
