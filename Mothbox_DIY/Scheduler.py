@@ -558,7 +558,7 @@ def run_shutdown_pi5_FAST():
     
     
     #Stop big lights from turning on!
-    offlight_script_path = "/home/pi/Desktop/Mothbox/AttractOff.py"
+    offlight_script_path = "/home/pi/Desktop/Mothbox/Attract_Off.py"
     # Call the script using subprocess.run
     subprocess.run([offlight_script_path])
     
