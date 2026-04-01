@@ -240,6 +240,7 @@ if softwareversion.startswith("4"):
             ina260.current, ina260.voltage, ina260.power))
     except (OSError, ValueError) as e:
         print("INA260 sensor NOT CONNECTED:", e)
+        voltage=-1
 
 else:
     # Mothbox Pro (5.x) or unknown — read via PCB voltage script
@@ -268,8 +269,10 @@ else:
             voltage = float(match.group(1))
         else:
             print("Could not parse voltage from output:", output)
+            voltage=-1
     except subprocess.CalledProcessError as e:
         print("Error reading voltage:", e)
+        voltage=-1
 
 # Calculate battery percentage (same formula for both models)
 # v20 -> 20%, v80 -> 80%, linearly extrapolated and clamped to 0-100%
@@ -380,7 +383,7 @@ try:
     draw.text((colW+2, 1.8*rowH), f"BATTERY", font=fontHeaders, fill=0)
     
     if(voltage==-1):
-        draw.text((colW+2, 2*rowH), f"UNKNOWN", font=fontHeaders, fill=0)
+        draw.text((colW+2, 2*rowH), f"               UNKNOWN", font=fontHeaders, fill=0)
     else:
         draw.text((colW+6, 1.4*rowH), f"          {percent:.0f}%", font=font_Atkinson19 , fill=0)
 
