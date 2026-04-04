@@ -1,23 +1,23 @@
-1) Update background Image
-2) Update system/controls/softwareversion.txt
-Update system/versioninfo.txt
+1) Update background Image # is just 5.2.x these days
+2) Update system/controls/softwareversion.txt 
+    #Update system/versioninfo.txt  # is just 5.x.x these days
 
 3) sudo apt update
-sudo apt update
-sudo apt upgrade
-(click the little update arrow in the top bar if it is there)
+	sudo apt update
+	sudo apt upgrade
+	(click the little update arrow in the top bar if it is there)
 
 4) Clean
-sudo journalctl --vacuum-size=50M
-sudo apt-get clean
-sudo apt-get autoremove
+	sudo journalctl --vacuum-size=50M
+	sudo apt-get clean
+	sudo apt-get autoremove
 
-sudo apt-get remove -purge firefox
+	sudo apt-get remove -purge firefox
 
-sudo apt-get remove -purge chromium-browser
-sudo truncate -s 0 *.log
+	sudo apt-get remove -purge chromium-browser
+	sudo truncate -s 0 *.log
 
 5) delete photo and photos_backed_up and logs
-6) delete trash
+6) empty trash
 7) copy scripts to USB to send to github
 8) Check default schedule
