@@ -179,6 +179,14 @@ def get_serial_number():
 
 
 def word_to_seed(word, encoding="utf-8"):
+    """Converts a serial number string to a stable unique seed for numpy."""
+    import hashlib
+    hash_bytes = hashlib.md5(word.encode(encoding)).digest()
+    # Convert first 4 bytes of hash to an integer within numpy's valid seed range
+    seed = int.from_bytes(hash_bytes[:4], byteorder='big') % (2**32)
+    return seed
+
+def word_to_seed_old(word, encoding="utf-8"):
     """Converts a word to a number suitable for np.random.seed using encoding, sum, and modulo.
     Args:
         word: The string to be converted.
@@ -188,7 +196,7 @@ def word_to_seed(word, encoding="utf-8"):
         An integer seed value within the valid range for np.random.seed.
     """
     encoded_word = word.encode(encoding)
-    seed = sum(encoded_word)
+    seed = sum(encoded_word) # this can lead to same numbers if the digits in the  serial number are the same
     max_seed_value = 2**32 - 1
     return seed
 
