@@ -3,7 +3,16 @@ This is where the firmware (software running on the device) is developed for the
 
 # Changelog (Pro 5.x and DIY 4.x versions)
 
-5.2.0 + 4.18.0 added minor bugfix 
+## 5.2.1 + 4.18.1 minor bugfix  WITH LARGE NAMING CHANGES
+
+It turns out the way i was kind of hashing the raspberry pi serial numbers to create unique names for the mothboxes had a flaw that made them not as random as we thought (out of 100 mothboxes we had 4 sets with the same name!)
+The names were still pretty random, so it's not that big of a problem, but at some point we need to fix this.
+
+It was a minor correction to the Scheduler.py script, BUT IMPORTANTLY, this means if you upgrade to this firmware, your auto-generated name for your mothbox will change! You can always give it a custom name, but the autoname will very likely change.
+So just heads up!
+
+
+## 5.2.0 + 4.18.0 added minor bugfix 
 
 added a rule via
 
@@ -19,8 +28,7 @@ and then updated BACKUP and DISPLAY scripts
 
 
 
-
-5.2.0
+## 5.2.0
 
 -power and memory saving features like
 - Wifi only turns on in DEBUG or PARTY modes, otherwise off
@@ -31,7 +39,7 @@ and then updated BACKUP and DISPLAY scripts
 -Photo interval - you can set how often photos get taken (default every 1 min). Min 1 minute, in 1 min intervals.
 
 
-4.18.0
+## 4.18.0
 
 -power and memory saving features like
 - Wifi only turns on in DEBUG or PARTY modes, otherwise off
@@ -43,7 +51,7 @@ and then updated BACKUP and DISPLAY scripts
 - safer segregated files for user input vs system control
 
 
-4.16.4
+## 4.16.4
 
 This image is the latest and greatest for DIY v4 boxes.
 
@@ -60,7 +68,7 @@ The big improvement was probably in the UI though. We chunked the information on
 
 
 
-5.0.3
+## 5.0.3
 
 This image is the latest and greatest for the new v5 boards.
 
