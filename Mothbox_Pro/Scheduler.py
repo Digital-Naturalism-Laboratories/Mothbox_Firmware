@@ -82,32 +82,73 @@ def configure_wifi_for_mode(mode):
         print(f"Mode is {mode} — disabling wifi")
         subprocess.run(["bash", f"{MOTHPOWER}/lowpower.sh"], check=False)
         
+def get_pi_ram_mb():
+    """Returns total RAM in MB by reading /proc/meminfo, or None on failure."""
+    try:
+        with open("/proc/meminfo", "r") as f:
+            for line in f:
+                if line.startswith("MemTotal"):
+                    kb = int(line.split()[1])
+                    return kb // 1024
+    except Exception:
+        pass
+    return None
+
+
+def get_os_codename():
+    """
+    Returns the Debian/Raspbian OS codename (e.g. 'bookworm', 'bullseye')
+    by reading /etc/os-release, or 'unknown' on failure.
+    """
+    try:
+        with open("/etc/os-release", "r") as f:
+            for line in f:
+                if line.startswith("VERSION_CODENAME="):
+                    return line.split("=", 1)[1].strip().strip('"').lower()
+    except Exception:
+        pass
+    return "unknown"
+
+
 def determinePiModel():
 
     # Check Raspberry Pi model using CPU info
     cpuinfo = open("/proc/cpuinfo", "r")
-    model = None  # Initialize model variable outside the loop
+    model  = None
+    serial = None
     themodel = None
 
     for line in cpuinfo:
-        # print(line)
         if line.startswith("Model"):
             model = line.split(":")[1].strip()
-            break
+        if line.startswith("Serial"):
+            serial = line.split(":")[1].strip()
     cpuinfo.close()
 
+    ram_mb   = get_pi_ram_mb()
+    os_name  = get_os_codename()
+
+    ram_str    = f"{ram_mb} MB RAM" if ram_mb is not None else "unknown RAM"
+    serial_str = serial if serial else "unknown serial"
+
     # Execute function based on model
-    print(model)
-    if model:  # Check if model was found
-        if "Pi 4" in model:  # Model identifier for Raspberry Pi 4
+    if model:
+        print(f"Model:  {model}")
+        print(f"RAM:    {ram_str}")
+        print(f"Serial: {serial_str}")
+        print(f"OS:     {os_name}")
+        if "Pi 4" in model:
             themodel = 4
-        elif "Pi 5" in model:  # Model identifier for Raspberry Pi 5
+        elif "Pi 5" in model:
             themodel = 5
         else:
             print("Unknown Raspberry Pi model detected. Going to treat as model 5")
             themodel = 5
     else:
         print("Error: Could not read Raspberry Pi model information.")
+        print(f"RAM:    {ram_str}")
+        print(f"Serial: {serial_str}")
+        print(f"OS:     {os_name}")
         themodel = 5
     return themodel
 
@@ -1178,6 +1219,10 @@ newwifidetected = settings["newwifidetected"]
 runtime         = settings["runtime"]
 print(settings)
 
+
+# Warn about leap-second timezones before they cause scheduling weirdness
+if manTimezone.startswith("right/"):
+    print("WARNING: Timezone uses 'right/' prefix which includes leap seconds and will cause scheduling errors. Use a standard timezone name instead.")
 
 # Change the timezone in controls
 #set_timezone(controlsFpath, manTimezone)
