@@ -1,101 +1,83 @@
 #!/usr/bin/python3
-
-
 import os
 import sys
-
-
 #GPIO
 import RPi.GPIO as GPIO
 import time
 import datetime
 from datetime import datetime
 import subprocess
-
 print("----------------- Attract Off! (no Boot Lock Version)-------------------")
 now = datetime.now()
 formatted_time = now.strftime("%Y-%m-%d %H:%M:%S")  # Adjust the format as needed
-
 print(f"Current time: {formatted_time}")
-
 global onlyflash
 onlyflash=False
-
 GPIO_SW_Ch1 = 5
 GPIO_SW_Ch2 = 6
 GPIO_SW_Ch3 = 9
 GPIO_SW_ChExt = 22 # Currently the PCBs have a bug where they are set to 7 but should change
 GPIO.setwarnings(False)
 GPIO.setmode(GPIO.BCM)
-
 GPIO.setup(GPIO_SW_Ch1,GPIO.OUT)
 GPIO.setup(GPIO_SW_Ch2,GPIO.OUT)
 GPIO.setup(GPIO_SW_Ch3,GPIO.OUT)
 GPIO.setup(GPIO_SW_ChExt,GPIO.OUT)
 print("Setup The GPIO_SW Module is [success]")
-
-
 GPIO_SW_Flash = 19
-
 GPIO.setup(GPIO_SW_Flash,GPIO.OUT)
-
-
 # This is a weird hack right now where because Ext Att is connected to 7, but 7 is owned by SPI, we override it
 def run_cmd(cmd):
     """Run a shell command safely"""
     subprocess.run(cmd, shell=True, check=False)
 
-
-
 def AttractOn():
     run_cmd("python /home/pi/Desktop/Mothbox/scripts/12vOn.py")
-    
     GPIO.output(GPIO_SW_Ch3,GPIO.HIGH)
     GPIO.output(GPIO_SW_Ch2,GPIO.HIGH)
     GPIO.output(GPIO_SW_Ch1,GPIO.HIGH)
     GPIO.output(GPIO_SW_ChExt,GPIO.HIGH)
     # Take GPIO7 from SPI and drive HIGH
     run_cmd("sudo pinctrl set 7 op dh")
-
     print("Attract Lights On\n")
-    
+
 def AttractOff():
     run_cmd("python /home/pi/Desktop/Mothbox/scripts/12vOff.py")
-
     GPIO.output(GPIO_SW_Ch3,GPIO.LOW)
     GPIO.output(GPIO_SW_Ch2,GPIO.LOW)
     GPIO.output(GPIO_SW_Ch1,GPIO.LOW)
     GPIO.output(GPIO_SW_ChExt,GPIO.LOW)
     # Take GPIO7 from SPI and drive HIGH
     run_cmd("sudo pinctrl set 7 op dl")
-    
     print("Attract Lights Off\n")
 
 def flashOn():
     GPIO.output(GPIO_SW_Flash,GPIO.HIGH)
     run_cmd("python /home/pi/Desktop/Mothbox/scripts/12vOn.py")
-
     #print("Flash Lights On\n")
-    
+
 def flashOff():
     #run_cmd("python /home/pi/Desktop/Mothbox/scripts/12vOff.py")
-
     GPIO.output(GPIO_SW_Flash,GPIO.LOW)
-
     #print("Flash Lights Off\n")
 
-AttractOn()
-flashOn()
-time.sleep(.25)
 
-flashOff()
-AttractOff()
-time.sleep(.25)
+# Read blink count from command-line argument; default to 2 (normal standby)
+blink_count = 2
+if len(sys.argv) > 1:
+    try:
+        blink_count = int(sys.argv[1])
+    except ValueError:
+        print(f"Warning: invalid blink count '{sys.argv[1]}', using default of 2")
 
-flashOn()
-AttractOn()
-time.sleep(.25)
+print(f"Blinking {blink_count} time(s)...")
 
-flashOff()
-AttractOff()
+for _ in range(blink_count):
+    AttractOn()
+    flashOn()
+    time.sleep(.25)
+    flashOff()
+    AttractOff()
+    time.sleep(.25)
+
 quit()

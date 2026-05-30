@@ -110,6 +110,40 @@ def get_os_codename():
     return "unknown"
 
 
+def check_camera():
+    """
+    Checks whether a camera is connected and responding using libcamera-hello.
+    Returns True if a camera is detected, False otherwise.
+    Uses a short timeout so it never stalls the boot sequence.
+    """
+    try:
+        result = subprocess.run(
+            ["libcamera-hello", "--list-cameras"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        output = result.stdout + result.stderr
+        # libcamera-hello exits 0 and prints camera info if a camera is found.
+        # If no camera is available it prints "No cameras available" and exits non-zero.
+        if result.returncode == 0 and "No cameras available" not in output:
+            print("✅ Camera detected.")
+            return True
+        else:
+            print("⚠️  WARNING: No camera detected! Check that the camera cable is properly seated.")
+            print("   Camera output:", output.strip())
+            return False
+    except FileNotFoundError:
+        print("⚠️  WARNING: libcamera-hello not found — cannot verify camera. Is libcamera installed?")
+        return False
+    except subprocess.TimeoutExpired:
+        print("⚠️  WARNING: Camera check timed out after 10 seconds — assuming no camera.")
+        return False
+    except Exception as e:
+        print(f"⚠️  WARNING: Camera check failed unexpectedly: {e}")
+        return False
+
+
 def determinePiModel():
 
     # Check Raspberry Pi model using CPU info
@@ -1508,6 +1542,19 @@ handle_wifi_provisioning(settings.get("ssid", None), settings.get("wifipass", No
 
 
 
+#------ Camera Check -----------
+# Run for every mode except OFF (already quit() before reaching here).
+# The result is stored in camera_ok so the standby blink block below can
+# use it to choose between a normal 2-blink and a warning 8-blink.
+
+print("Checking camera...")
+camera_ok = check_camera()
+if not camera_ok:
+    print("⚠️  Camera not found — standby blink will use warning pattern (8 blinks).")
+#------ End Camera Check -------
+
+
+
 #------ Log Some Diagnostics with Sensors -----------
 
 run_script("/home/pi/Desktop/Mothbox/Diagnostics.py", "Startup_Check", show_output=True)
@@ -1528,7 +1575,8 @@ if mode == "ACTIVE":
         print("Active, but outside schedule window, STANDBY mode - shutting down")
         mode = "STANDBY"
         atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
-        run_cmd("python /home/pi/Desktop/Mothbox/scripts/blink_standby.py")
+        blink_count = 2 if camera_ok else 8
+        run_cmd(f"python /home/pi/Desktop/Mothbox/scripts/blink_standby.py {blink_count}")
         run_shutdown_pi5_FAST()
         quit()
 
