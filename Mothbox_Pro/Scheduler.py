@@ -716,20 +716,128 @@ def stopcron():
     subprocess.run(["python", "/home/pi/Desktop/Mothbox/StopCron.py"])
 
 
-def add_wifi_credentials(ssid, password):
-    """Adds a new WiFi network configuration to the Raspberry Pi using NetworkManager (Bookworm).
-    Args:
-        ssid: The SSID of the WiFi network.
-        password: The password of the WiFi network.
+def is_wifi_already_known(ssid):
     """
-
-    # Add the new connection with nmcli
-    command = ["nmcli", "dev", "wifi", "connect", ssid, "password", password]
+    Returns True if NetworkManager already has a saved connection for this SSID.
+    Uses 'nmcli -t -f NAME connection show' which lists all saved profiles.
+    Does not require wifi to be active — just checks the saved connection list.
+    """
     try:
-        subprocess.run(command, check=True)
-        print(f"Successfully added WiFi network: {ssid}")
+        result = subprocess.run(
+            ["nmcli", "-t", "-f", "NAME", "connection", "show"],
+            capture_output=True, text=True, check=True
+        )
+        known = [line.strip() for line in result.stdout.splitlines()]
+        return ssid in known
+    except subprocess.CalledProcessError as e:
+        print(f"⚠️ Could not query NetworkManager connections: {e}")
+        return False  # Assume unknown — safer to try provisioning than to skip it
+
+
+def provision_wifi(ssid, password):
+    """
+    Adds a new WiFi network to NetworkManager and attempts to connect.
+    Skips silently if the SSID is already a saved connection.
+
+    Returns True if the network was newly added and connection succeeded,
+    False if it was skipped (already known) or if connection failed.
+    """
+    if not ssid or ssid in ("examplessid", "", None):
+        print("No valid SSID provided — skipping wifi provisioning.")
+        return False
+
+    if not password or password in ("examplepass", "", None):
+        print(f"No valid password provided for '{ssid}' — skipping wifi provisioning.")
+        return False
+
+    if is_wifi_already_known(ssid):
+        print(f"WiFi '{ssid}' is already a saved connection — skipping.")
+        return False
+
+    print(f"New WiFi SSID detected: '{ssid}' — attempting to add and connect...")
+    try:
+        subprocess.run(
+            ["nmcli", "dev", "wifi", "connect", ssid, "password", password],
+            check=True
+        )
+        print(f"✅ Successfully added and connected to WiFi network: '{ssid}'")
+        return True
     except subprocess.CalledProcessError as error:
-        print(f"Failed to connect to WiFi network: {ssid}. Error: {error}")
+        print(f"⚠️ Failed to connect to WiFi network '{ssid}': {error}")
+        return False
+
+
+def handle_wifi_provisioning(ssid, password, mode):
+    """
+    Entry point for wifi provisioning logic.  Behaviour depends on mode:
+
+    DEBUG / HI_POW / PARTY:
+        Wifi is already up (configure_wifi_for_mode ran before this).
+        Attempt provisioning immediately.  On success, clear the CSV values
+        so the same credentials are not re-provisioned on every boot.
+
+    ACTIVE / STANDBY / OFF:
+        We do not want to spin up wifi just to provision — it would delay
+        the boot sequence.  Instead, write a "pending" flag to controls so
+        the next DEBUG/HI_POW session picks it up automatically.
+        (The user just needs to flip the Debug switch once to provision.)
+
+    In all cases, if there is nothing new to provision the function returns
+    immediately without side-effects.
+    """
+    PENDING_PATH = os.path.join(CONTROL_ROOT, "wifi_pending.txt")
+
+    # Normalise: treat placeholder values the same as empty
+    placeholder_ssids  = {"examplessid", "", None}
+    placeholder_passes = {"examplepass", "", None}
+
+    has_new_ssid = ssid not in placeholder_ssids
+    has_new_pass = password not in placeholder_passes
+
+    if not has_new_ssid:
+        # Nothing in the CSV — but check if a previous boot left a pending job
+        pending = get_control_values(PENDING_PATH)
+        pending_ssid = pending.get("pending_ssid", "")
+        pending_pass = pending.get("pending_pass", "")
+        if not pending_ssid or pending_ssid in placeholder_ssids:
+            return  # Genuinely nothing to do
+        print(f"Found pending wifi provisioning request for '{pending_ssid}' from a previous boot.")
+        ssid     = pending_ssid
+        password = pending_pass
+        has_new_ssid = True
+        has_new_pass = bool(pending_pass)
+
+    wifi_modes = {"DEBUG", "HI_POW", "PARTY"}
+
+    if mode in wifi_modes:
+        # Wifi is up — attempt provisioning now
+        success = provision_wifi(ssid, password if has_new_pass else "")
+        if success:
+            # Clear the CSV credentials so they don't re-trigger on every boot.
+            # We write the placeholder values back rather than blanking the rows,
+            # so the CSV structure stays valid for the user to edit again later.
+            print("Clearing provisioned credentials from CSV...")
+            update_csv_setting(usersettingsFpath, "ssid",    "examplessid")
+            update_csv_setting(usersettingsFpath, "wifipass", "examplepass")
+            # Also clear any pending flag
+            if os.path.exists(PENDING_PATH):
+                os.remove(PENDING_PATH)
+        else:
+            # Connection failed — leave pending flag so user can retry
+            print("Provisioning unsuccessful. Will retry next time wifi is available.")
+            atomic_update_kv(PENDING_PATH, "pending_ssid", ssid)
+            atomic_update_kv(PENDING_PATH, "pending_pass", password if has_new_pass else "")
+    else:
+        # Wifi is off in this mode — park the request for a future DEBUG session
+        if not is_wifi_already_known(ssid):
+            print(
+                f"Mode is {mode} — wifi is off. Saving '{ssid}' as pending; "
+                f"switch to DEBUG mode to provision it."
+            )
+            atomic_update_kv(PENDING_PATH, "pending_ssid", ssid)
+            atomic_update_kv(PENDING_PATH, "pending_pass", password if has_new_pass else "")
+        else:
+            print(f"WiFi '{ssid}' is already known — nothing to do.")
 
 
 def modify_hours(data, offsett_value, key="hour"):
@@ -1345,6 +1453,10 @@ if mode=="HI_POW" or mode=="QR_PROG":
 configure_display_for_mode(mode)
 
 configure_wifi_for_mode(mode)
+
+# ---- Wifi provisioning (new credentials from CSV or pending from prior boot) ----
+handle_wifi_provisioning(settings.get("ssid", None), settings.get("wifipass", None), mode)
+# ---- End wifi provisioning ----
 
 
 ####---- END MODE LOGIC----#
