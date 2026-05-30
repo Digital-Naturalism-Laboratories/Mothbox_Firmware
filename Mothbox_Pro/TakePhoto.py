@@ -647,12 +647,16 @@ def takePhoto_Manual():
           
           
           print(ImageFileType)
+          
+          # Only append the HDR tag if we are taking more than 1 bracketed photo
+          hdr_suffix = f"_HDR{i}" if num_photos > 1 else ""
+          
           if ImageFileType==1: #png
-              filepath = folderPath+computerName+"_"+timestamp+"_HDR"+str(i)+".png"
+              filepath = folderPath + computerName + "_" + timestamp + hdr_suffix + ".png"
           elif ImageFileType==0: #jpeg
-              filepath = folderPath+computerName+"_"+timestamp+"_HDR"+str(i)+".jpg"
+              filepath = folderPath + computerName + "_" + timestamp + hdr_suffix + ".jpg"
           elif ImageFileType==2: #bmp
-              filepath = folderPath+computerName+"_"+timestamp+"_HDR"+str(i)+".bmp"
+              filepath = folderPath + computerName + "_" + timestamp + hdr_suffix + ".bmp"
 
         
           #print(exif_data) #This is a LOT of data
