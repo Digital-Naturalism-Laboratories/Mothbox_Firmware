@@ -466,6 +466,70 @@ def schedule_shutdown(minutes):
         print("Shutdown scheduling stopped.")
 
 
+def should_abort_shutdown(cron_source, runtime_minutes, grace_minutes=1):
+    """
+    Checks whether the device is still inside a valid scheduled session window.
+
+    This guards against the edge case where a slow SD card or a runtime that
+    exceeds the gap between scheduled wakeups causes shutdown to fire slightly
+    after the next slot's start time.  Without this check, calculate_next_event
+    would skip that slot and the device would wake an hour (or more) late.
+
+    Args:
+        cron_source:     dict with 'minute', 'hour', 'weekday' keys (same format
+                         as build_cron_expression expects).
+        runtime_minutes: configured session length in minutes.
+        grace_minutes:   minimum window past a slot's start time that is still
+                         considered "in session" (default: 1 minute).  Catches
+                         slow-SD-card delays even when runtime < slot gap.
+
+    Returns:
+        Remaining minutes (float) if shutdown should be postponed — the caller
+        should reschedule shutdown for that many minutes from now.
+        None if it is safe to proceed with shutdown immediately.
+    """
+    now = datetime.datetime.now()
+
+    minutes      = parse_int_list(cron_source.get("minute",  "0"))
+    hours        = parse_int_list(cron_source.get("hour",    "20"))
+    weekdays_raw = parse_int_list(cron_source.get("weekday", "1,2,3,4,5,6,7"))
+
+    # Convert CSV weekday (1–7, 1=Monday) → Python weekday (0–6, 0=Monday)
+    weekdays = [(d - 1) % 7 for d in weekdays_raw]
+
+    now_weekday = now.weekday()
+
+    # Check today and yesterday to catch sessions that started before midnight
+    for day_offset in (0, -1):
+        day     = now.date() + datetime.timedelta(days=day_offset)
+        weekday = (now_weekday + day_offset) % 7
+
+        if weekday not in weekdays:
+            continue
+
+        for h in hours:
+            for m in minutes:
+                start = datetime.datetime.combine(day, datetime.time(hour=h, minute=m))
+                # Use whichever is larger: the configured runtime, or the grace
+                # floor.  This means a 1-minute slip on a 59-minute session is
+                # caught, AND a runtime longer than the slot gap is also caught.
+                effective_end = start + datetime.timedelta(
+                    minutes=max(runtime_minutes, grace_minutes)
+                )
+
+                if start <= now < effective_end:
+                    remaining = (effective_end - now).total_seconds() / 60.0
+                    print(
+                        f"⚠️  Shutdown requested at {now.strftime('%H:%M:%S')} but "
+                        f"session window {start.strftime('%H:%M')}–"
+                        f"{effective_end.strftime('%H:%M')} is still active. "
+                        f"Rescheduling shutdown in {remaining:.1f} min."
+                    )
+                    return remaining
+
+    return None
+
+
 def run_shutdown_pi5():
     """
     Shut down the raspberry pi
@@ -481,7 +545,21 @@ def run_shutdown_pi5():
         f.write("booting\n")
 
     #-------------------#
-    
+
+    # --- Guard: don't shut down if we're still inside a scheduled session window ---
+    cron_source = switch_schedule if use_switch_schedule else load_settings_for_wakeup()
+    current_runtime = int(read_control("runtime", runtime))
+    remaining_minutes = should_abort_shutdown(cron_source, current_runtime)
+    if remaining_minutes is not None:
+        print(f"Shutdown aborted — rescheduling in {remaining_minutes:.1f} min.")
+        # Clear the old fired job and schedule a new one for the remaining window.
+        # This ensures the device shuts down at the true end of the session rather
+        # than running forever.
+        schedule.clear()
+        schedule.every(remaining_minutes).minutes.do(run_shutdown_pi5)
+        return
+    # --- End guard ---
+
     print("about to launch the shutdown")
     print("but we are running ONE LAST WAKEUP SCHEDULER")
 
@@ -563,7 +641,21 @@ def run_shutdown_pi5_FAST():
         f.write("booting\n")
 
     #-------------------#
-    
+
+    # --- Guard: don't shut down if we're still inside a scheduled session window ---
+    # Note: OFF mode bypasses this check intentionally — if the user flipped the
+    # Active switch off, they want the device to shut down regardless of schedule.
+    current_mode = read_control("mode", "ACTIVE")
+    if current_mode != "OFF":
+        cron_source = switch_schedule if use_switch_schedule else load_settings_for_wakeup()
+        current_runtime = int(read_control("runtime", runtime))
+        remaining_minutes = should_abort_shutdown(cron_source, current_runtime)
+        if remaining_minutes is not None:
+            print(f"Shutdown aborted — rescheduling in {remaining_minutes:.1f} min.")
+            schedule.clear()
+            schedule.every(remaining_minutes).minutes.do(run_shutdown_pi5_FAST)
+            return
+    # --- End guard ---
     
     #Stop big lights from turning on!
     offlight_script_path = "/home/pi/Desktop/Mothbox/Attract_Off.py"
@@ -1374,5 +1466,3 @@ if runtime > 0 and mode not in ("DEBUG", "PARTY"):
     schedule_shutdown(runtime)
 else:
     print("no shutdown scheduled, will run indefinitely")
-
-
