@@ -49,21 +49,21 @@ import fcntl
 # -----Scheduler Functions-------------------
 def configure_display_for_mode(mode):
     """
-    Default boot target is multi-user (headless) — set once via:
+    Default boot target is multi-user (headless) -- set once via:
         sudo systemctl set-default multi-user.target
     This function only starts the desktop when explicitly needed (DEBUG/PARTY).
     """
     desktop_modes = {"DEBUG", "PARTY"}
 
     if mode in desktop_modes:
-        print(f"Mode is {mode} — starting graphical desktop for this session")
+        print(f"Mode is {mode} -- starting graphical desktop for this session")
         subprocess.run(
             ["sudo", "systemctl", "start", "graphical.target"],
             check=False
         )
     else:
-        print(f"Mode is {mode} — running headless (multi-user default)")
-        # Nothing to do — headless is already the boot default
+        print(f"Mode is {mode} -- running headless (multi-user default)")
+        # Nothing to do -- headless is already the boot default
 
 
 def configure_wifi_for_mode(mode):
@@ -75,11 +75,11 @@ def configure_wifi_for_mode(mode):
     wifi_modes = {"DEBUG", "PARTY", "HI_POW"}
 
     if mode in wifi_modes:
-        print(f"Mode is {mode} — enabling wifi")
+        print(f"Mode is {mode} -- enabling wifi")
         subprocess.run(["bash", f"{MOTHPOWER}/stop_lowpower.sh"], check=False)
         subprocess.run(["bash", f"{MOTHPOWER}/powerup_wifi.sh"], check=False)
     else:
-        print(f"Mode is {mode} — disabling wifi")
+        print(f"Mode is {mode} -- disabling wifi")
         subprocess.run(["bash", f"{MOTHPOWER}/lowpower.sh"], check=False)
         
 def get_pi_ram_mb():
@@ -127,20 +127,20 @@ def check_camera():
         # libcamera-hello exits 0 and prints camera info if a camera is found.
         # If no camera is available it prints "No cameras available" and exits non-zero.
         if result.returncode == 0 and "No cameras available" not in output:
-            print("✅ Camera detected.")
+            print("[OK] Camera detected.")
             return True
         else:
-            print("⚠️  WARNING: No camera detected! Check that the camera cable is properly seated.")
+            print("[!]  WARNING: No camera detected! Check that the camera cable is properly seated.")
             print("   Camera output:", output.strip())
             return False
     except FileNotFoundError:
-        print("⚠️  WARNING: libcamera-hello not found — cannot verify camera. Is libcamera installed?")
+        print("[!]  WARNING: libcamera-hello not found -- cannot verify camera. Is libcamera installed?")
         return False
     except subprocess.TimeoutExpired:
-        print("⚠️  WARNING: Camera check timed out after 10 seconds — assuming no camera.")
+        print("[!]  WARNING: Camera check timed out after 10 seconds -- assuming no camera.")
         return False
     except Exception as e:
-        print(f"⚠️  WARNING: Camera check failed unexpectedly: {e}")
+        print(f"[!]  WARNING: Camera check failed unexpectedly: {e}")
         return False
 
 
@@ -382,7 +382,7 @@ def load_settings_for_wakeup():
     settings = load_settings(usersettingsFpath)
 
     if settings is None:
-        print("⚠️ WARNING: Could not load settings for wakeup — using defaults")
+        print("[!] WARNING: Could not load settings for wakeup -- using defaults")
         settings = dict(SETTING_DEFAULTS)
 
     settings.pop("runtime", None)  # runtime not needed for wakeup scheduling
@@ -514,7 +514,7 @@ def get_control_values(filename):
                 control_values[key.strip()] = value.strip()
 
     except Exception as e:
-        print(f"⚠️ Warning: Failed reading {filename}: {e}")
+        print(f"[!] Warning: Failed reading {filename}: {e}")
 
     return control_values
 
@@ -559,7 +559,7 @@ def should_abort_shutdown(cron_source, runtime_minutes, grace_minutes=1):
                          slow-SD-card delays even when runtime < slot gap.
 
     Returns:
-        Remaining minutes (float) if shutdown should be postponed — the caller
+        Remaining minutes (float) if shutdown should be postponed -- the caller
         should reschedule shutdown for that many minutes from now.
         None if it is safe to proceed with shutdown immediately.
     """
@@ -569,7 +569,7 @@ def should_abort_shutdown(cron_source, runtime_minutes, grace_minutes=1):
     hours        = parse_int_list(cron_source.get("hour",    "20"))
     weekdays_raw = parse_int_list(cron_source.get("weekday", "1,2,3,4,5,6,7"))
 
-    # Convert CSV weekday (1–7, 1=Monday) → Python weekday (0–6, 0=Monday)
+    # Convert CSV weekday (1-7, 1=Monday) -> Python weekday (0-6, 0=Monday)
     weekdays = [(d - 1) % 7 for d in weekdays_raw]
 
     now_weekday = now.weekday()
@@ -595,8 +595,8 @@ def should_abort_shutdown(cron_source, runtime_minutes, grace_minutes=1):
                 if start <= now < effective_end:
                     remaining = (effective_end - now).total_seconds() / 60.0
                     print(
-                        f"⚠️  Shutdown requested at {now.strftime('%H:%M:%S')} but "
-                        f"session window {start.strftime('%H:%M')}–"
+                        f"[!]  Shutdown requested at {now.strftime('%H:%M:%S')} but "
+                        f"session window {start.strftime('%H:%M')}-"
                         f"{effective_end.strftime('%H:%M')} is still active. "
                         f"Rescheduling shutdown in {remaining:.1f} min."
                     )
@@ -626,7 +626,7 @@ def run_shutdown_pi5():
     current_runtime = int(read_control("runtime", runtime))
     remaining_minutes = should_abort_shutdown(cron_source, current_runtime)
     if remaining_minutes is not None:
-        print(f"Shutdown aborted — rescheduling in {remaining_minutes:.1f} min.")
+        print(f"Shutdown aborted -- rescheduling in {remaining_minutes:.1f} min.")
         # Clear the old fired job and schedule a new one for the remaining window.
         # This ensures the device shuts down at the true end of the session rather
         # than running forever.
@@ -635,19 +635,18 @@ def run_shutdown_pi5():
         return
     # --- End guard ---
 
-    print("about to launch the shutdown")
-    print("but we are running ONE LAST WAKEUP SCHEDULER")
+    log_section("SHUTDOWN -- Graceful")
 
     # SCHEDULE WAKEUP AGAIN FOR SECURITY
     settings = load_settings_for_wakeup()
     cron_source = switch_schedule if use_switch_schedule else settings
     cron_expression = build_cron_expression(cron_source)
-    print(cron_expression)
+    log_info(f"Cron expression: {cron_expression}")
 
     next_epoch_time = calculate_next_event(cron_expression, utc_off)
     clear_wakeup_alarm()
     set_wakeup_alarm(next_epoch_time)
-    print(f"Next wakeup scheduled for: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(next_epoch_time))}")
+    log_ok(f"Next wakeup scheduled for: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(next_epoch_time))}")
 
     ''' # Cutting out GPS check at shutdown, feels not really needed
     # GPS check / 10 second delay
@@ -673,21 +672,17 @@ def run_shutdown_pi5():
     #Update the Epaper screen if it is available 
     GPIO.cleanup()
 
-    print("Updating Epaper display before shutdown (if available)")
+    log_info("Updating ePaper display before shutdown (if available)...")
     process = subprocess.Popen(['python', '/home/pi/Desktop/Mothbox/UpdateDisplay.py'],
                               stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE)
     stdout, stderr = process.communicate()
     if stderr:
-      print(f"Error running script: {stderr.decode()}")
+      log_warn(f"UpdateDisplay error: {stderr.decode().strip()}")
     else:
       print(stdout.decode())
 
-
-
-
-    #Give it an extra second in case details need to sink in
-    print("shutting down in 6 seconds")
+    log_info("Shutting down in ~4 seconds...")
     time.sleep(1)
     run_script("/home/pi/Desktop/Mothbox/Diagnostics.py", "Shutdown_Check", show_output=True)
 
@@ -701,8 +696,7 @@ def run_shutdown_pi5_FAST():
     """
     Shut down the raspberry pi
     """
-    print("Fast shutdown!")
-    print("but we are running ONE LAST WAKEUP SCHEDULER")
+    log_section("SHUTDOWN -- Fast")
     
     
     # Re-lock the other scripts (don't want it to start taking a photo before shutting down)
@@ -718,7 +712,7 @@ def run_shutdown_pi5_FAST():
     #-------------------#
 
     # --- Guard: don't shut down if we're still inside a scheduled session window ---
-    # Note: OFF mode bypasses this check intentionally — if the user flipped the
+    # Note: OFF mode bypasses this check intentionally -- if the user flipped the
     # Active switch off, they want the device to shut down regardless of schedule.
     current_mode = read_control("mode", "ACTIVE")
     if current_mode != "OFF":
@@ -726,7 +720,7 @@ def run_shutdown_pi5_FAST():
         current_runtime = int(read_control("runtime", runtime))
         remaining_minutes = should_abort_shutdown(cron_source, current_runtime)
         if remaining_minutes is not None:
-            print(f"Shutdown aborted — rescheduling in {remaining_minutes:.1f} min.")
+            print(f"Shutdown aborted -- rescheduling in {remaining_minutes:.1f} min.")
             schedule.clear()
             schedule.every(remaining_minutes).minutes.do(run_shutdown_pi5_FAST)
             return
@@ -741,29 +735,23 @@ def run_shutdown_pi5_FAST():
     settings = load_settings_for_wakeup()
     cron_source = switch_schedule if use_switch_schedule else settings
     cron_expression = build_cron_expression(cron_source)
-    print(cron_expression)
+    log_info(f"Cron expression: {cron_expression}")
 
     next_epoch_time = calculate_next_event(cron_expression, utc_off)
     clear_wakeup_alarm()
     set_wakeup_alarm(next_epoch_time)
-    print(f"Next wakeup scheduled for: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(next_epoch_time))}")
+    log_ok(f"Next wakeup scheduled for: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(next_epoch_time))}")
 
-
-    #Epaper
-    #Update the Epaper screen if it is available 
     GPIO.cleanup()
-
-    print("Updating Epaper display before shutdown (if available)")
+    log_info("Updating ePaper display before shutdown (if available)...")
     process = subprocess.Popen(['python', '/home/pi/Desktop/Mothbox/UpdateDisplay.py'],
                               stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE)
     stdout, stderr = process.communicate()
     if stderr:
-      print(f"Error running script: {stderr.decode()}")
+      log_warn(f"UpdateDisplay error: {stderr.decode().strip()}")
     else:
       print(stdout.decode())
-
-    #input()
 
     # subprocess.run(["python", "/home/pi/Desktop/Mothbox/TurnEverythingOff.py"])
     os.system("sudo shutdown -h now")
@@ -795,7 +783,7 @@ def is_wifi_already_known(ssid):
     """
     Returns True if NetworkManager already has a saved connection for this SSID.
     Uses 'nmcli -t -f NAME connection show' which lists all saved profiles.
-    Does not require wifi to be active — just checks the saved connection list.
+    Does not require wifi to be active -- just checks the saved connection list.
     """
     try:
         result = subprocess.run(
@@ -805,8 +793,8 @@ def is_wifi_already_known(ssid):
         known = [line.strip() for line in result.stdout.splitlines()]
         return ssid in known
     except subprocess.CalledProcessError as e:
-        print(f"⚠️ Could not query NetworkManager connections: {e}")
-        return False  # Assume unknown — safer to try provisioning than to skip it
+        print(f"[!] Could not query NetworkManager connections: {e}")
+        return False  # Assume unknown -- safer to try provisioning than to skip it
 
 
 def provision_wifi(ssid, password):
@@ -818,27 +806,27 @@ def provision_wifi(ssid, password):
     False if it was skipped (already known) or if connection failed.
     """
     if not ssid or ssid in ("examplessid", "", None):
-        print("No valid SSID provided — skipping wifi provisioning.")
+        print("No valid SSID provided -- skipping wifi provisioning.")
         return False
 
     if not password or password in ("examplepass", "", None):
-        print(f"No valid password provided for '{ssid}' — skipping wifi provisioning.")
+        print(f"No valid password provided for '{ssid}' -- skipping wifi provisioning.")
         return False
 
     if is_wifi_already_known(ssid):
-        print(f"WiFi '{ssid}' is already a saved connection — skipping.")
+        print(f"WiFi '{ssid}' is already a saved connection -- skipping.")
         return False
 
-    print(f"New WiFi SSID detected: '{ssid}' — attempting to add and connect...")
+    print(f"New WiFi SSID detected: '{ssid}' -- attempting to add and connect...")
     try:
         subprocess.run(
             ["nmcli", "dev", "wifi", "connect", ssid, "password", password],
             check=True
         )
-        print(f"✅ Successfully added and connected to WiFi network: '{ssid}'")
+        print(f"[OK] Successfully added and connected to WiFi network: '{ssid}'")
         return True
     except subprocess.CalledProcessError as error:
-        print(f"⚠️ Failed to connect to WiFi network '{ssid}': {error}")
+        print(f"[!] Failed to connect to WiFi network '{ssid}': {error}")
         return False
 
 
@@ -852,7 +840,7 @@ def handle_wifi_provisioning(ssid, password, mode):
         so the same credentials are not re-provisioned on every boot.
 
     ACTIVE / STANDBY / OFF:
-        We do not want to spin up wifi just to provision — it would delay
+        We do not want to spin up wifi just to provision -- it would delay
         the boot sequence.  Instead, write a "pending" flag to controls so
         the next DEBUG/HI_POW session picks it up automatically.
         (The user just needs to flip the Debug switch once to provision.)
@@ -870,7 +858,7 @@ def handle_wifi_provisioning(ssid, password, mode):
     has_new_pass = password not in placeholder_passes
 
     if not has_new_ssid:
-        # Nothing in the CSV — but check if a previous boot left a pending job
+        # Nothing in the CSV -- but check if a previous boot left a pending job
         pending = get_control_values(PENDING_PATH)
         pending_ssid = pending.get("pending_ssid", "")
         pending_pass = pending.get("pending_pass", "")
@@ -885,7 +873,7 @@ def handle_wifi_provisioning(ssid, password, mode):
     wifi_modes = {"DEBUG", "HI_POW", "PARTY"}
 
     if mode in wifi_modes:
-        # Wifi is up — attempt provisioning now
+        # Wifi is up -- attempt provisioning now
         success = provision_wifi(ssid, password if has_new_pass else "")
         if success:
             # Clear the CSV credentials so they don't re-trigger on every boot.
@@ -898,21 +886,21 @@ def handle_wifi_provisioning(ssid, password, mode):
             if os.path.exists(PENDING_PATH):
                 os.remove(PENDING_PATH)
         else:
-            # Connection failed — leave pending flag so user can retry
+            # Connection failed -- leave pending flag so user can retry
             print("Provisioning unsuccessful. Will retry next time wifi is available.")
             atomic_update_kv(PENDING_PATH, "pending_ssid", ssid)
             atomic_update_kv(PENDING_PATH, "pending_pass", password if has_new_pass else "")
     else:
-        # Wifi is off in this mode — park the request for a future DEBUG session
+        # Wifi is off in this mode -- park the request for a future DEBUG session
         if not is_wifi_already_known(ssid):
             print(
-                f"Mode is {mode} — wifi is off. Saving '{ssid}' as pending; "
+                f"Mode is {mode} -- wifi is off. Saving '{ssid}' as pending; "
                 f"switch to DEBUG mode to provision it."
             )
             atomic_update_kv(PENDING_PATH, "pending_ssid", ssid)
             atomic_update_kv(PENDING_PATH, "pending_pass", password if has_new_pass else "")
         else:
-            print(f"WiFi '{ssid}' is already known — nothing to do.")
+            print(f"WiFi '{ssid}' is already known -- nothing to do.")
 
 
 def modify_hours(data, offsett_value, key="hour"):
@@ -951,13 +939,13 @@ def calculate_next_event(cron_expression, utcOff):
     # Work entirely in UTC
     now_utc = datetime.datetime.now(datetime.timezone.utc)
 
-    # Convert UTC → LOCAL using known offset
+    # Convert UTC -> LOCAL using known offset
     now_local = now_utc + datetime.timedelta(hours=float(utcOff))
 
     schedule = job.schedule(date_from=now_local)
     next_local = schedule.get_next()
 
-    # Convert back LOCAL → UTC
+    # Convert back LOCAL -> UTC
     next_utc = next_local - datetime.timedelta(hours=float(utcOff))
 
     return int(next_utc.timestamp())
@@ -1019,7 +1007,7 @@ def run_script(script_path, *args, show_output=True):
                 print(output)
 
     except subprocess.CalledProcessError as e:
-        print(f"⚠️ Error running {script_path}: {e.stderr.strip() if e.stderr else 'Unknown error'}")
+        print(f"[!] Error running {script_path}: {e.stderr.strip() if e.stderr else 'Unknown error'}")
 
 
 # Check if now is in schedule 
@@ -1038,7 +1026,7 @@ def is_now_in_schedule(settings, runtime_minutes):
     hours = parse_int_list(settings.get("hour", ""))
     weekdays_raw = parse_int_list(settings.get("weekday", ""))
 
-    # Convert CSV weekday (1–7) → Python weekday (0–6)
+    # Convert CSV weekday (1-7) -> Python weekday (0-6)
     weekdays = [(d - 1) % 7 for d in weekdays_raw]
 
     now_weekday = now.weekday()
@@ -1050,7 +1038,6 @@ def is_now_in_schedule(settings, runtime_minutes):
         weekday = (now_weekday + day_offset) % 7
 
         if weekday not in weekdays:
-            print("not active day")
             continue
 
         for h in hours:
@@ -1104,7 +1091,7 @@ def update_csv_setting(filename, setting_name, new_value):
         os.replace(tmp, filename)
         print(f"Successfully updated {setting_name} to {new_value}.")
     except Exception as e:
-        print(f"⚠️ Error writing updated CSV: {e}")
+        print(f"[!] Error writing updated CSV: {e}")
         # Clean up the temp file if something went wrong
         if os.path.exists(tmp):
             os.remove(tmp)
@@ -1148,13 +1135,13 @@ def read_switch_schedule(switch_vals):
     # Python weekday: Monday=0...Sunday=6
     # We'll store as cron-compatible: 1=Monday, 7=Sunday
     day_cron_map = {
-        "d0": 7,  # Sunday → 7
-        "d1": 1,  # Monday → 1
+        "d0": 7,  # Sunday -> 7
+        "d1": 1,  # Monday -> 1
         "d2": 2,
         "d3": 3,
         "d4": 4,
         "d5": 5,
-        "d6": 6,  # Saturday → 6
+        "d6": 6,  # Saturday -> 6
     }
 
     active_days = []
@@ -1173,7 +1160,7 @@ def read_switch_schedule(switch_vals):
     hour_str   = ",".join(str(h) for h in sorted(active_hours))
     weekday_str = ",".join(str(d) for d in sorted(active_days))
 
-    print(f"Switch schedule — hours: {hour_str}, days: {weekday_str}")
+    print(f"Switch schedule -- hours: {hour_str}, days: {weekday_str}")
 
     return {
         "minute":  "0",
@@ -1186,42 +1173,63 @@ def read_switch_schedule(switch_vals):
 #                       Main Code
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~###
 
-print()
-print("------------------------------------")
-print("----------------- STARTING Scheduler!-------------------")
-print("------------------------------------")
+def log_section(title):
+    """Prints a clearly delineated section header for the log."""
+    width = 60
+    print()
+    print("=" * width)
+    print(f"  [ {title} ]")
+    print("=" * width)
 
-# EEPROM STUFFFFFFFFFF
-# First figure out if this is a Pi4 or a Pi5
+def log_ok(msg):
+    print(f"  \u2705 {msg}")
+
+def log_warn(msg):
+    print(f"  \u26a0\ufe0f  {msg}")
+
+def log_info(msg):
+    print(f"  \u2022  {msg}")
+
+
+# Boot header -- printed before anything else so the log
+# boundary is always visible even if startup crashes early
+_boot_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+print()
+print("\u2554" + "\u2550" * 58 + "\u2557")
+print("\u2551" + "       MOTHBOX SCHEDULER  \u2014  STARTING             " + "\u2551")
+print(f"\u2551  Boot time : {_boot_time:<44} \u2551")
+print("\u255a" + "\u2550" * 58 + "\u255d")
+
+log_section("STARTUP -- Hardware")
+
 rpiModel = None
 rpiModel = determinePiModel()
 
 if rpiModel == 4:
-    print("The Pi4 is not fully supported anymore. It will be unable to wake itself back up. If you really need to use this with a pi4, there are old images you can try, but without a pijuice it won't be able to wake itself up.")
+    log_warn("Pi 4 is not fully supported -- it cannot wake itself back up without a PiJuice.")
+    log_info("Use an older image if you need Pi 4 support.")
 
 if rpiModel == 5:
-
     desired_settings = {"POWER_OFF_ON_HALT": "1", "WAKE_ON_GPIO": "0"}
     current_settings = check_eeprom_settings()
 
     if all(
         current_settings.get(key) == value for key, value in desired_settings.items()
     ):
-        print("EEPROM settings are already correct.")
+        log_ok("EEPROM settings are correct.")
     else:
         for key, value in desired_settings.items():
             if key not in current_settings or current_settings[key] != value:
                 current_settings[key] = value
         set_eeprom_settings(current_settings)
-        print("EEPROM settings updated.")
-### ---------- End EEPROM stuff
+        log_ok("EEPROM settings updated.")
 
 # Figuring out the controls and settings
 controlsFpath="/boot/firmware/mothbox_custom/system"
 CONTROL_ROOT = os.path.join(controlsFpath, "controls")
 os.makedirs(CONTROL_ROOT, exist_ok=True)
 
-# Safe defaults — will be properly set after switch reading
+# Safe defaults -- will be properly set after switch reading
 use_switch_schedule = False
 switch_schedule = {}
 
@@ -1231,14 +1239,15 @@ default_backup_controlspaths="/boot/firmware/mothbox_custom/system/default_backu
 
 
 
-# Load custom settings
+log_section("STARTUP -- Configuration")
+
 settings = load_settings(usersettingsFpath)
 if settings is None:
-    print("CRITICAL: Could not load settings, using defaults")
+    log_warn("CRITICAL: Could not load settings -- using built-in defaults.")
     settings = dict(SETTING_DEFAULTS)
     settings["newwifidetected"] = False
 
-# Unpack explicitly — no hidden globals
+# Unpack explicitly -- no hidden globals
 autoname        = settings["autoname"]
 manName         = settings["name"]
 manTimezone     = settings["timezone"]
@@ -1251,12 +1260,11 @@ bat_voltage     = settings["bat_voltage"]
 onlyflash       = settings["onlyflash"]
 newwifidetected = settings["newwifidetected"]
 runtime         = settings["runtime"]
-print(settings)
+log_info(f"Loaded settings: {settings}")
 
 
-# Warn about leap-second timezones before they cause scheduling weirdness
 if manTimezone.startswith("right/"):
-    print("WARNING: Timezone uses 'right/' prefix which includes leap seconds and will cause scheduling errors. Use a standard timezone name instead.")
+    log_warn("Timezone uses 'right/' prefix which includes leap seconds and will cause scheduling errors. Use a standard timezone name instead.")
 
 # Change the timezone in controls
 #set_timezone(controlsFpath, manTimezone)
@@ -1268,14 +1276,13 @@ atomic_update_kv(os.path.join(CONTROL_ROOT, "timezone.txt"), "timezone", manTime
 
 # Check the timezone
 
-# run timezone updater
-print("|><| running the timezone updater to make sure our timezone is correct |><| ")
+log_info(f"Timezone set to: {manTimezone} -- running TimezoneUpdater...")
 process = subprocess.Popen(['python', '/home/pi/Desktop/Mothbox/TimezoneUpdater.py'],
                           stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE)
 stdout, stderr = process.communicate()
 if stderr:
-  print(f"Error running script: {stderr.decode()}")
+  log_warn(f"TimezoneUpdater error: {stderr.decode().strip()}")
 else:
   print(stdout.decode())
 
@@ -1283,22 +1290,17 @@ else:
 # Todo: fix the time setting algorithm
 # Set the time manually!
 if(autoTime=="false"):
-    print("We are going to set time manually!")
-    
-    subprocess.run(["timedatectl", "set-ntp", "false"], check=True) # Try to disable auto time
+    log_info("Time mode: MANUAL -- setting system clock from CSV value.")
+    subprocess.run(["timedatectl", "set-ntp", "false"], check=True)
     subprocess.run([
     "python3",
     "/home/pi/Desktop/Mothbox/SetTimeandDate.py",
     manTime
     ], check=True)
-    #Turn the manTime off to prevent Groundhog Days
     update_csv_setting(usersettingsFpath, "autoSystemTime", "True")
-
-    
 else:
-    print("Time is using autotime")
-    subprocess.run(["timedatectl", "set-ntp", "true"], check=True)    
-    print("Sync hwclock to main clock for security")
+    log_info("Time mode: AUTO (NTP)")
+    subprocess.run(["timedatectl", "set-ntp", "true"], check=True)
     os.system("sudo hwclock -w")
 
 #Reset python's cached version of the time
@@ -1307,12 +1309,11 @@ time.tzset()
 now = datetime.datetime.now()
 formatted_time = now.strftime("%Y-%m-%d %H:%M:%S")  # Adjust the format as needed
 
-print(f"Current time: {formatted_time} on a RPi model " + str(rpiModel))
+log_ok(f"Confirmed time: {formatted_time}   (RPi model {rpiModel})")
 
 
-# ~~~~~~ Setting the Mothbox's unique name ~~~~~~~~~~~~~~~~~~
-
-print("Should we use an automatic name?: ",autoname)
+log_section("STARTUP -- Identity")
+log_info(f"Auto-name enabled: {autoname}")
 # Add option for people to manually set a name, but default to autoname made by pi5 serial number 
 if(autoname=="true"):
     filename = "/home/pi/Desktop/Mothbox/wordlist.csv"  # Replace with your actual filename
@@ -1338,15 +1339,15 @@ if(autoname=="true"):
     serial_number = get_serial_number()
     # 0 is english 1 is spanish 2 is either spanish or enlgish 3 is spanglish
     unique_name = generate_unique_name(serial_number, 3)
-    print(f"Unique name for device: {unique_name}")
+    log_ok(f"Device name (auto): {unique_name}")
 
     # Change it in controls
     #set_computerName("/boot/firmware/mothbox_custom/system/controls.txt", unique_name)
     atomic_update_kv(os.path.join(CONTROL_ROOT, "name.txt"), "name", unique_name)
 else:
   computerName=manName
-  atomic_update_kv(os.path.join(CONTROL_ROOT, "name.txt"), "name", manName)  # ← add this
-  print(f"manual name for Mothbox: {computerName}")
+  atomic_update_kv(os.path.join(CONTROL_ROOT, "name.txt"), "name", manName)  # <- add this
+  log_ok(f"Device name (manual): {computerName}")
   
 # ---- End figure out name -----
 
@@ -1389,17 +1390,13 @@ sHI     = int(switch_vals.get("HI", 0))
 
 
 
-print("Active:", sActive)
-print("Debug:",  sDebug)
-print("C1:",     sC1)
-print("U1:",     sU1)
-print("HI:",     sHI)
+log_info(f"Switches -- Active:{sActive}  Debug:{sDebug}  C1:{sC1}  U1:{sU1}  HI:{sHI}")
 
 # Initialize scheduling variables early so shutdown functions can safely reference them
 # even if called before the scheduling block is reached
 use_switch_schedule = (sU1 == 1)
 switch_schedule = {}
-print("Use switch schedule:", use_switch_schedule)
+log_info(f"Schedule source: {"physical switches" if use_switch_schedule else "CSV settings"}")
 
 # ----------END SWITCH CHECK----------------
 
@@ -1413,17 +1410,18 @@ utc_off = float(read_control("utc", 0))
 # ~~~~ Pi 5 specific things to change cron-like commands to the next UTC target
 
 
-# ~~~~~~~ Do the Scheduling ~~~~~~~~~~~~~~~~~~~~
+log_section("CONFIGURATION -- Scheduling")
+
 switch_schedule = {}
 if use_switch_schedule:
-    print("Schedule set by physical switches")
+    log_info("Schedule source: physical switches")
     switch_schedule = read_switch_schedule(switch_vals)
     minute  = switch_schedule["minute"]
     hour    = switch_schedule["hour"]
     weekday = switch_schedule["weekday"]
     runtime = switch_schedule["runtime"]
 else:
-    print("Schedule set by internal CSV settings")
+    log_info("Schedule source: CSV settings")
     minute  = settings.get("minute",  "0")
     hour    = settings.get("hour",    "20")
     weekday = settings.get("weekday", "1,2,3,4,5,6,7")
@@ -1435,11 +1433,10 @@ settings.pop("photo_interval", None)  # don't let it pollute cron builder
 
 set_timings(minute, hour, weekday, runtime)
 settings.pop("runtime", None)  # safe delete, no KeyError
-print("printing schedule settings")
 
 
 if rpiModel == 4:
-    print("pi4 not supported anymore, it won't be able to wake itself")
+    log_warn("Pi 4 not supported -- device cannot wake itself.")
 
 if rpiModel == 5:
     # don't need to modify the hours to UTC like we do for pijuice
@@ -1456,31 +1453,27 @@ if rpiModel == 5:
     cron_source = switch_schedule if use_switch_schedule else settings
     cron_expression = build_cron_expression(cron_source)
     
-    print(cron_expression)
-    print("utc_off ", utc_off)
+    log_info(f"Cron expression : {cron_expression}")
+    log_info(f"UTC offset      : {utc_off}")
 
     next_epoch_time = calculate_next_event(cron_expression, utc_off)
 
     # Clear existing wakeup alarm (assuming sudo access)
     clear_wakeup_alarm()
 
-print(
-    f"Next wakeup event scheduled for: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(next_epoch_time))}"
-)
 set_wakeup_alarm(next_epoch_time)
-print("Wakeup Alarms have been set!")
+log_ok(f"Next wakeup alarm set for: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(next_epoch_time))}")
 
 #-- End Scheduling complete, now set all the other settings
 
 
 
 
-### --- MODE LOGIC ----####
+log_section("CONFIGURATION -- Mode")
 
-#### Check OFF mode
 if sActive == 0:
     mode = "OFF"
-    print("should go to off!")
+    log_info("Active switch is OFF -> mode: OFF")
 
 if mode == "OFF":
     atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
@@ -1512,7 +1505,7 @@ if(sDebug==0 and sHI==1):
     None
     mode="HI_POW"
 
-print("Mothbox mode is:  "+ mode)
+log_ok(f"Mode determined: {mode}")
 # Write mode to controls.txt
 #set_Mode(controlsFpath, mode)
 atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
@@ -1526,16 +1519,15 @@ if mode=="HI_POW" or mode=="QR_PROG":
     mode="ACTIVE"
     atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
     #set_Mode(controlsFpath, mode)
-    print("temp correct mode: ",mode)
+    log_info(f"Mode normalised to: {mode}")
 
 # ----- Mode kills desktop mode for everything but DEBUG and PARTY   
 configure_display_for_mode(mode)
 
 configure_wifi_for_mode(mode)
 
-# ---- Wifi provisioning (new credentials from CSV or pending from prior boot) ----
+log_section("CONFIGURATION -- WiFi Provisioning")
 handle_wifi_provisioning(settings.get("ssid", None), settings.get("wifipass", None), mode)
-# ---- End wifi provisioning ----
 
 
 ####---- END MODE LOGIC----#
@@ -1547,15 +1539,15 @@ handle_wifi_provisioning(settings.get("ssid", None), settings.get("wifipass", No
 # The result is stored in camera_ok so the standby blink block below can
 # use it to choose between a normal 2-blink and a warning 8-blink.
 
-print("Checking camera...")
+log_section("CONFIGURATION -- Camera")
 camera_ok = check_camera()
 if not camera_ok:
-    print("⚠️  Camera not found — standby blink will use warning pattern (8 blinks).")
+    log_warn("Camera not found -- standby blink will use warning pattern (8 blinks).")
 #------ End Camera Check -------
 
 
 
-#------ Log Some Diagnostics with Sensors -----------
+log_section("CONFIGURATION -- Sensors & Diagnostics")
 
 run_script("/home/pi/Desktop/Mothbox/Diagnostics.py", "Startup_Check", show_output=True)
 
@@ -1563,16 +1555,16 @@ run_script("/home/pi/Desktop/Mothbox/Diagnostics.py", "Startup_Check", show_outp
 
 
 
-#---------Standby Check - - Check if we should be running now according to schedule, and if not, turn off -------------
+log_section("LAUNCH -- Schedule Check")
 
 if mode == "ACTIVE":
     schedule_to_check = switch_schedule if use_switch_schedule else settings
     if is_now_in_schedule(schedule_to_check, runtime):
         now_is_in_schedule = 1
-        print("Active, Within schedule window - staying awake")
+        log_ok("Within schedule window -- staying awake.")
     else:
         now_is_in_schedule = 0
-        print("Active, but outside schedule window, STANDBY mode - shutting down")
+        log_info("Outside schedule window -> entering STANDBY.")
         mode = "STANDBY"
         atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
         blink_count = 2 if camera_ok else 8
@@ -1581,17 +1573,16 @@ if mode == "ACTIVE":
         quit()
 
 
-# GPS check / 10 second delay
-print("Checking GPS (if available) for 10 seconds")
+log_section("LAUNCH -- GPS")
+log_info("Checking GPS (if available) -- up to 10 seconds...")
 process = subprocess.Popen(['python', '/home/pi/Desktop/Mothbox/GPS.py'],
                           stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE)
 stdout, stderr = process.communicate()
 if stderr:
-  print(f"Error running script: {stderr.decode()}")
+  log_warn(f"GPS error: {stderr.decode().strip()}")
 else:
   print(stdout.decode())
-  
 
 # Toggle a mode where the flash lights are always on
 #enable_onlyflash()
@@ -1600,45 +1591,39 @@ else:
 
 # ~~~~~~~ Display ~~~~~~~~~~~~~~~~~~~~
 
-#Update the Epaper screen if it is available
+log_section("LAUNCH -- Display")
+log_info("Updating ePaper display (if available)...")
 GPIO.cleanup()
-print("Updating Epaper display (if available)")
 process = subprocess.Popen(['python', '/home/pi/Desktop/Mothbox/UpdateDisplay.py'],
                           stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE)
 stdout, stderr = process.communicate()
 if stderr:
-  print(f"Error running script: {stderr.decode()}")
+  log_warn(f"Display error: {stderr.decode().strip()}")
 else:
   print(stdout.decode())
 
 
+log_section("LAUNCH -- Final Mode")
 
-
-
-# ~~~~~~~ Final Mode Determine ~~~~~~~~~~~~~~~~~~~~
-
-#Final Step (No other code past this, this is where it sits and waits until shutdown)
-# - prepare shutdown and wait
-# Toggle System MODE, shut down if in OFF/INACTIVE mode
-if mode == "OFF": #it shouldn't have gotten here if in OFF mode, but just extra check
-    print("System is in OFF MODE")
+if mode == "OFF":
+    log_info("Mode is OFF -- shutting down.")
     if rpiModel == 4:
-        print("rpi4 no longer supported")
+        log_warn("Pi 4 not supported.")
         run_shutdown_pi5_FAST()
         quit()
     if rpiModel == 5:
         run_shutdown_pi5()
         quit()
 elif mode == "DEBUG":
-    print("System is in DEBUG mode - keeping power and wifi on and turning cron off")
+    log_ok("Mode is DEBUG -- wifi on, cron off, staying alive.")
     # Define the path to your script (replace 'path/to/script' with the actual path)
     debug_script_path = "/home/pi/Desktop/Mothbox/DebugMode.py"
     # Call the script using subprocess.run
     subprocess.run([debug_script_path])
     # stopcron()
 elif mode == "PARTY":
-    print("System is in DEBUG mode - keeping power and wifi on and turning cron off")
+    log_ok("Mode is PARTY -- lights cycling, wifi on.")
     # Define the path to your script (replace 'path/to/script' with the actual path)
     debug_script_path = "/home/pi/Desktop/Mothbox/DebugMode.py"
     # Call the script using subprocess.run
@@ -1649,9 +1634,9 @@ elif mode == "PARTY":
     subprocess.run([party_script_path])
     # stopcron()
 elif mode == "ACTIVE":
-    print("System is ACTIVE")
+    log_ok("Mode is ACTIVE -- session running.")
 else:
-    print("Invalid mode")
+    log_warn(f"Unrecognised mode: {mode}")
 
 
 
@@ -1664,10 +1649,11 @@ if os.path.exists(BOOT_LOCK):
 ###--------------------------------------###
 
 
+log_section("LAUNCH -- Session Timer")
 if runtime > 0 and mode not in ("DEBUG", "PARTY"):
     enable_shutdown()
     time.sleep(0.05)
-    print("Stuff will run for " + str(runtime) + " minutes before shutdown")
+    log_info(f"Session will run for {runtime} minute(s) then shut down.")
     schedule_shutdown(runtime)
 else:
-    print("no shutdown scheduled, will run indefinitely")
+    log_info("No shutdown scheduled -- running indefinitely.")
