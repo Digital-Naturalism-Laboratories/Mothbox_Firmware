@@ -112,36 +112,44 @@ def get_os_codename():
 
 def check_camera():
     """
-    Checks whether a camera is connected and responding using libcamera-hello.
+    Checks whether a camera is connected and responding using rpicam-hello
+    (the current tool on Raspberry Pi OS Bookworm and later).
+    Falls back to the older libcamera-hello if rpicam-hello is not found,
+    for compatibility with older images.
     Returns True if a camera is detected, False otherwise.
     Uses a short timeout so it never stalls the boot sequence.
     """
-    try:
-        result = subprocess.run(
-            ["libcamera-hello", "--list-cameras"],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        output = result.stdout + result.stderr
-        # libcamera-hello exits 0 and prints camera info if a camera is found.
-        # If no camera is available it prints "No cameras available" and exits non-zero.
-        if result.returncode == 0 and "No cameras available" not in output:
-            print("[OK] Camera detected.")
-            return True
-        else:
-            print("[!]  WARNING: No camera detected! Check that the camera cable is properly seated.")
-            print("   Camera output:", output.strip())
+    # Try rpicam-hello first (current), fall back to libcamera-hello (legacy)
+    for tool in ("rpicam-hello", "libcamera-hello"):
+        try:
+            result = subprocess.run(
+                [tool, "--list-cameras"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            output = result.stdout + result.stderr
+            print(f"[-]    Camera check using {tool}:")
+            print(f"       {output.strip()[:200]}")
+            if result.returncode == 0 and "No cameras available" not in output:
+                print(f"[OK]   Camera detected via {tool}.")
+                return True
+            else:
+                print(f"[WARN] {tool}: no camera found.")
+                print(f"       Output: {output.strip()[:200]}")
+                return False
+        except FileNotFoundError:
+            print(f"[-]    {tool} not found, trying fallback...")
+            continue
+        except subprocess.TimeoutExpired:
+            print(f"[WARN] Camera check timed out after 10 seconds ({tool}) -- assuming no camera.")
             return False
-    except FileNotFoundError:
-        print("[!]  WARNING: libcamera-hello not found -- cannot verify camera. Is libcamera installed?")
-        return False
-    except subprocess.TimeoutExpired:
-        print("[!]  WARNING: Camera check timed out after 10 seconds -- assuming no camera.")
-        return False
-    except Exception as e:
-        print(f"[!]  WARNING: Camera check failed unexpectedly: {e}")
-        return False
+        except Exception as e:
+            print(f"[WARN] Camera check failed unexpectedly ({tool}): {e}")
+            return False
+
+    print("[WARN] Neither rpicam-hello nor libcamera-hello found -- cannot verify camera.")
+    return False
 
 
 def determinePiModel():
@@ -413,10 +421,10 @@ def load_settings(filename):
                         print(setting + value)
                     elif setting == "runtime":
                         result["runtime"] = int(value)
-                    elif setting == "ssid":
+                    elif setting in ("ssid", "wifissid"):
                         result["ssid"] = value
                         newwifidetected = True
-                    elif setting == "wifipass":
+                    elif setting in ("wifipass", "wifipassword"):
                         result["wifipass"] = value
                         newwifidetected = True
                     elif setting == "manualTime":
@@ -781,19 +789,50 @@ def stopcron():
 
 def is_wifi_already_known(ssid):
     """
-    Returns True if NetworkManager already has a saved connection for this SSID.
-    Uses 'nmcli -t -f NAME connection show' which lists all saved profiles.
-    Does not require wifi to be active -- just checks the saved connection list.
+    Returns True if NetworkManager already has a saved WiFi connection whose
+    SSID matches the given string.
+
+    Uses 'nmcli -t -f NAME,TYPE connection show' to list all saved profiles,
+    then checks wifi-type connections by their SSID field specifically.
+    This avoids a false-positive where a connection profile has a different
+    name than the SSID (e.g. NM auto-names them differently).
     """
     try:
+        # First pass: check connection names directly (fast, covers most cases)
         result = subprocess.run(
-            ["nmcli", "-t", "-f", "NAME", "connection", "show"],
+            ["nmcli", "-t", "-f", "NAME,TYPE", "connection", "show"],
             capture_output=True, text=True, check=True
         )
-        known = [line.strip() for line in result.stdout.splitlines()]
-        return ssid in known
+        wifi_profile_names = []
+        for line in result.stdout.splitlines():
+            parts = line.strip().split(":")
+            if len(parts) >= 2 and "wireless" in parts[1]:
+                wifi_profile_names.append(parts[0])
+
+        if ssid in wifi_profile_names:
+            return True
+
+        # Second pass: check actual SSID field of each wifi profile, because
+        # NetworkManager profile names don't always match the SSID exactly
+        for profile_name in wifi_profile_names:
+            try:
+                detail = subprocess.run(
+                    ["nmcli", "-t", "-f", "802-11-wireless.ssid", "connection",
+                     "show", profile_name],
+                    capture_output=True, text=True, check=True
+                )
+                for line in detail.stdout.splitlines():
+                    if ":" in line:
+                        val = line.split(":", 1)[1].strip()
+                        if val == ssid:
+                            return True
+            except subprocess.CalledProcessError:
+                continue
+
+        return False
+
     except subprocess.CalledProcessError as e:
-        print(f"[!] Could not query NetworkManager connections: {e}")
+        print(f"[WARN] Could not query NetworkManager connections: {e}")
         return False  # Assume unknown -- safer to try provisioning than to skip it
 
 
@@ -857,12 +896,15 @@ def handle_wifi_provisioning(ssid, password, mode):
     has_new_ssid = ssid not in placeholder_ssids
     has_new_pass = password not in placeholder_passes
 
+    log_info(f"WiFi provisioning check -- SSID from CSV: {repr(ssid)}, new={has_new_ssid}, mode={mode}")
+
     if not has_new_ssid:
         # Nothing in the CSV -- but check if a previous boot left a pending job
         pending = get_control_values(PENDING_PATH)
         pending_ssid = pending.get("pending_ssid", "")
         pending_pass = pending.get("pending_pass", "")
         if not pending_ssid or pending_ssid in placeholder_ssids:
+            log_info("No new WiFi credentials found -- skipping.")
             return  # Genuinely nothing to do
         print(f"Found pending wifi provisioning request for '{pending_ssid}' from a previous boot.")
         ssid     = pending_ssid
@@ -880,8 +922,11 @@ def handle_wifi_provisioning(ssid, password, mode):
             # We write the placeholder values back rather than blanking the rows,
             # so the CSV structure stays valid for the user to edit again later.
             print("Clearing provisioned credentials from CSV...")
-            update_csv_setting(usersettingsFpath, "ssid",    "examplessid")
+            # Try both key names so it works regardless of which the user's CSV uses
+            update_csv_setting(usersettingsFpath, "wifissid", "examplessid")
+            update_csv_setting(usersettingsFpath, "ssid",     "examplessid")
             update_csv_setting(usersettingsFpath, "wifipass", "examplepass")
+            update_csv_setting(usersettingsFpath, "wifipassword", "examplepass")
             # Also clear any pending flag
             if os.path.exists(PENDING_PATH):
                 os.remove(PENDING_PATH)
@@ -1396,7 +1441,10 @@ log_info(f"Switches -- Active:{sActive}  Debug:{sDebug}  C1:{sC1}  U1:{sU1}  HI:
 # even if called before the scheduling block is reached
 use_switch_schedule = (sU1 == 1)
 switch_schedule = {}
-log_info(f"Schedule source: {"physical switches" if use_switch_schedule else "CSV settings"}")
+source_type = "physical switches" if use_switch_schedule else "CSV settings"
+log_info(f"Schedule source: {source_type}")
+
+
 
 # ----------END SWITCH CHECK----------------
 
