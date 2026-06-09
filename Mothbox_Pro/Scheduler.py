@@ -403,64 +403,124 @@ def load_settings_for_wakeup():
 
     return settings
 
+def _open_csv_robust(filename):
+    """
+    Opens a CSV file that may have been saved by Excel.
+    Handles:
+      - UTF-8 BOM  (utf-8-sig strips the BOM automatically)
+      - Windows CRLF line endings  (universal newlines via newline='')
+      - Latin-1 / cp1252 fallback  (Excel 'Save as CSV' on Windows)
+    Returns an open file object; caller is responsible for closing it.
+    """
+    for encoding in ("utf-8-sig", "utf-8", "latin-1", "cp1252"):
+        try:
+            f = open(filename, newline="", encoding=encoding)
+            f.read(512)        # probe — will raise on bad encoding
+            f.seek(0)
+            return f, encoding
+        except (UnicodeDecodeError, LookupError):
+            try:
+                f.close()
+            except Exception:
+                pass
+    # Last-ditch: ignore undecodable bytes
+    f = open(filename, newline="", encoding="utf-8", errors="replace")
+    return f, "utf-8-replace"
+
+
 def load_settings(filename):
     result = dict(SETTING_DEFAULTS)
     newwifidetected = False
 
     try:
-        with open(filename, newline="") as csv_file:
-            reader = csv.DictReader(csv_file)
-            for row in reader:
-                setting = row["SETTING"]
-                value   = row["VALUE"]
-
-                try:
-                    if setting in ("day", "weekday", "hour", "minute",
-                                   "minutes_period", "second"):
-                        result[setting] = value
-                        print(setting + value)
-                    elif setting == "runtime":
-                        result["runtime"] = int(value)
-                    elif setting in ("ssid", "wifissid"):
-                        result["ssid"] = value
-                        newwifidetected = True
-                    elif setting in ("wifipass", "wifipassword"):
-                        result["wifipass"] = value
-                        newwifidetected = True
-                    elif setting == "manualTime":
-                        result["manualTime"] = value
-                    elif setting == "autoSystemTime":
-                        result["autoSystemTime"] = value.strip().lower()
-                    elif setting == "timezone":
-                        result["timezone"] = value
-                    elif setting == "autoname":
-                        result["autoname"] = value.strip().lower()
-                    elif setting == "name":
-                        result["name"] = value
-                    elif setting == "onlyflash":
-                        result["onlyflash"] = int(value)
-                    elif setting == "bat_voltage":
-                        result["bat_voltage"] = float(value)
-                    elif setting == "bat_Wh":
-                        result["bat_Wh"] = float(value)
-                    elif setting == "bat_80perVolts":
-                        result["bat_80perVolts"] = float(value)
-                    elif setting == "bat_20perVolts":
-                        result["bat_20perVolts"] = float(value)
-                    elif setting == "photo_interval":
-                        result["photo_interval"] = int(value)
-                    else:
-                        print(f"Warning: Unknown setting: {setting}. Ignoring.")
-                except (ValueError, TypeError):
-                    print(f"WARNING: Could not parse '{setting}' value '{value}', using default {result.get(setting, 'N/A')}")
-
-        result["newwifidetected"] = newwifidetected
-        return result
-
+        f, enc = _open_csv_robust(filename)
+        print(f"[i] Reading settings with encoding: {enc}")
     except FileNotFoundError:
         print(f"Error: CSV file not found: {filename}")
         return None
-    
+
+    try:
+        reader = csv.DictReader(f)
+
+        # Excel sometimes renames / reformats the header row.
+        # Normalise header names: strip whitespace + BOM residue, lowercase.
+        if reader.fieldnames:
+            reader.fieldnames = [
+                h.strip().lstrip("\ufeff").upper()
+                for h in reader.fieldnames
+            ]
+
+        # Require at minimum a SETTING and VALUE column
+        if not reader.fieldnames or \
+           "SETTING" not in reader.fieldnames or \
+           "VALUE" not in reader.fieldnames:
+            print(f"[!] CSV header malformed (got {reader.fieldnames}) -- returning None")
+            return None
+
+        for row in reader:
+            # Skip completely blank rows (Excel often appends these)
+            if not any(v and v.strip() for v in row.values()):
+                continue
+
+            raw_setting = row.get("SETTING", "") or ""
+            raw_value   = row.get("VALUE",   "") or ""
+
+            setting = raw_setting.strip().lstrip("\ufeff")
+            value   = raw_value.strip()
+
+            if not setting:
+                continue   # empty setting name → skip silently
+
+            try:
+                if setting in ("day", "weekday", "hour", "minute",
+                               "minutes_period", "second"):
+                    result[setting] = value
+                    print(setting + value)
+                elif setting == "runtime":
+                    result["runtime"] = int(value)
+                elif setting in ("ssid", "wifissid"):
+                    result["ssid"] = value
+                    newwifidetected = True
+                elif setting in ("wifipass", "wifipassword"):
+                    result["wifipass"] = value
+                    newwifidetected = True
+                elif setting == "manualTime":
+                    result["manualTime"] = value
+                elif setting == "autoSystemTime":
+                    result["autoSystemTime"] = value.strip().lower()
+                elif setting == "timezone":
+                    result["timezone"] = value
+                elif setting == "autoname":
+                    result["autoname"] = value.strip().lower()
+                elif setting == "name":
+                    result["name"] = value
+                elif setting == "onlyflash":
+                    result["onlyflash"] = int(value)
+                elif setting == "bat_voltage":
+                    result["bat_voltage"] = float(value)
+                elif setting == "bat_Wh":
+                    result["bat_Wh"] = float(value)
+                elif setting == "bat_80perVolts":
+                    result["bat_80perVolts"] = float(value)
+                elif setting == "bat_20perVolts":
+                    result["bat_20perVolts"] = float(value)
+                elif setting == "photo_interval":
+                    result["photo_interval"] = int(value)
+                else:
+                    print(f"Warning: Unknown setting: {setting}. Ignoring.")
+            except (ValueError, TypeError):
+                print(f"WARNING: Could not parse '{setting}' value '{value}', "
+                      f"using default {result.get(setting, 'N/A')}")
+
+    except Exception as e:
+        print(f"[!] Unexpected error reading settings CSV: {e}")
+        return None
+    finally:
+        f.close()
+
+    result["newwifidetected"] = newwifidetected
+    return result
+
 
 def run_cmd(cmd):
     """Run a shell command safely"""

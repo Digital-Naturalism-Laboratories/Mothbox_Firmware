@@ -556,13 +556,22 @@ def create_dated_folder(base_path):
 def takePhoto_Manual():
     global middleexposure, calib_lens_position, calib_exposure, calib_gain
     # LensPosition: Manual focus, Set the lens position.
-    now = datetime.now()
-    timestamp = now.strftime("%Y_%m_%d__%H_%M_%S")  # Adjust the format as needed
-    #TODO MAKE ALL TIME ISO FORMAT
-    #timestamp = now.strftime("%y%m%d%H%M%S")
-    #serial_number = get_serial_number()
-    #lastfivedigits=serial_number[-5:]
 
+    now = datetime.now()
+    tz_offset = datetime.utcnow()
+    offset_total_minutes = int(utc_offset_hours * 60)
+    sign = "+" if offset_total_minutes >= 0 else "-"
+    abs_minutes = abs(offset_total_minutes)
+    offset_str = f"{sign}{abs_minutes // 60:02d}-{abs_minutes % 60:02d}"
+    timestamp = now.strftime("%Y-%m-%dT%H-%M-%S") + offset_str
+
+    '''
+    this should make timestamps like
+
+    verdeMoth_2025-06-09T21-30-00+02-00.jpg
+    verdetMoth_2025-06-09T21-30-00-05-00_HDR1.jpg
+    
+    '''
 
     ''''''
     if camera_settings:
@@ -806,6 +815,9 @@ LastCalibration= float(read_control(CONTROL_ROOT / "lastcalibration.txt", "lastc
 
 #computerName = control_values.get("name", "wrong")
 computerName = read_control(CONTROL_ROOT / "name.txt", "name", "errorname")
+
+# Read UTC offset (stored as a float like 2.0 or -5.5 cuz fun timezones like kathmandu)
+utc_offset_hours = float(read_control(CONTROL_ROOT / "utc.txt", "utc", 0))
 
 '''
 if(onlyflash):
