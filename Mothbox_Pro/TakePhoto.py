@@ -557,6 +557,7 @@ def takePhoto_Manual():
     global middleexposure, calib_lens_position, calib_exposure, calib_gain
     # LensPosition: Manual focus, Set the lens position.
 
+    # Create ISO 8601 like standard timestamp on photos
     now = datetime.now()
     tz_offset = datetime.utcnow()
     offset_total_minutes = int(utc_offset_hours * 60)
