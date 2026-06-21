@@ -45,7 +45,7 @@ def AttractOff():
     GPIO.output(GPIO_SW_Ch2,GPIO.HIGH)
     GPIO.output(GPIO_SW_Ch1,GPIO.HIGH)
 
-    print("Attract Lights Off\n")
+    print("All Lights Off\n")
     
 def AttractOn():
 
@@ -53,17 +53,24 @@ def AttractOn():
     GPIO.output(GPIO_SW_Ch2,GPIO.LOW)
     GPIO.output(GPIO_SW_Ch1,GPIO.LOW)
     
-    print("Attract Lights On\n")
+    print("AllLights On\n")
 
 
-AttractOn()
-time.sleep(.25)
 
-AttractOff()
-time.sleep(.25)
+# Read blink count from command-line argument; default to 2 (normal standby)
+blink_count = 2
+if len(sys.argv) > 1:
+    try:
+        blink_count = int(sys.argv[1])
+    except ValueError:
+        print(f"Warning: invalid blink count '{sys.argv[1]}', using default of 2")
 
-AttractOn()
-time.sleep(.25)
+print(f"Blinking {blink_count} time(s)...")
 
-AttractOff()
+for _ in range(blink_count):
+    AttractOn()
+    time.sleep(.25)
+    AttractOff()
+    time.sleep(.25)
+
 quit()
