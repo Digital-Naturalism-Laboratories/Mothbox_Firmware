@@ -12,8 +12,28 @@ It also tries to set the EEPROM correctly too! So you don't have to do anything!
 
 It should work on a Pi4 if it has a pijuice attached and installed
 
-"""
+--------------------------------------------------------------------------
+EEPROM SAFETY NOTE (see eeprom_safe.py, must be alongside this script)
+--------------------------------------------------------------------------
+`rpi-eeprom-config --apply` does not write the EEPROM immediately -- it stages
+an update that is flashed by recovery.bin on the NEXT boot. The old version of
+this script staged that update and then powered the device off on the SAME
+boot (via run_shutdown_pi5 / run_shutdown_pi5_FAST + RTC wake-alarm), which
+could interrupt the SPI flash mid-write and corrupt the bootloader -- exactly
+the "reflash the bootloader, put the SD card back in, works" symptom.
 
+This version:
+  1. Delegates EEPROM provisioning to eeprom_safe.ensure_eeprom_configured(),
+     which is gated by a persistent flag so it only ever runs once, edits ONLY
+     the keys we care about (preserving BOOT_ORDER etc.), and applies staged
+     changes via a CLEAN reboot -- never a halt/wake-alarm power-off.
+  2. Verifies the live/running config after that reboot before declaring
+     success, with bounded retries and an onboard-LED error blink if the
+     flash genuinely won't take.
+  3. Guards both shutdown paths so the device will reboot-to-apply instead of
+     powering off whenever an EEPROM flash is still staged and pending.
+--------------------------------------------------------------------------
+"""
 
 ###------Boot Lock-------------###
 #create boot lock. This stops other scripts that might get called by cron from running
@@ -46,6 +66,14 @@ import logging
 import re
 import RPi.GPIO as GPIO
 import fcntl
+
+# EEPROM safety module -- must live alongside this script (or on PYTHONPATH)
+from eeprom_safe import (
+    ensure_eeprom_configured,
+    should_reboot_before_poweroff,
+    reboot_to_apply,
+)
+
 # -----Scheduler Functions-------------------
 def configure_display_for_mode(mode):
     """
@@ -193,32 +221,6 @@ def determinePiModel():
         print(f"OS:     {os_name}")
         themodel = 5
     return themodel
-
-
-def check_eeprom_settings():
-    """Checks the current EEPROM settings and returns a dictionary of settings."""
-    output = subprocess.check_output(["sudo", "rpi-eeprom-config"]).decode("utf-8")
-    settings = {}
-    for line in output.splitlines():
-        match = re.match(r"(\w+)=(\d+)", line)
-        if match:
-            settings[match.group(1)] = match.group(2)
-    return settings
-
-
-def set_eeprom_settings(settings):
-    """Sets the specified EEPROM settings."""
-    config_lines = []
-    for key, value in settings.items():
-        config_lines.append(f"{key}={value}")
-
-    config_content = "\n".join(config_lines)
-    with open("/tmp/eeprom_config.txt", "w") as f:
-        f.write(config_content)
-
-    subprocess.run(["sudo", "rpi-eeprom-config", "--apply", "/tmp/eeprom_config.txt"])
-
-
 
 
 def read_csv_into_lists(filename, encoding="utf-8"):
@@ -677,6 +679,17 @@ def run_shutdown_pi5():
     """
     Shut down the raspberry pi
     """
+    # --- EEPROM safety guard: never power off with a staged flash pending ---
+    # If eeprom_safe staged a bootloader update earlier this boot (or a prior
+    # boot) and it hasn't been applied/verified yet, a halt here could
+    # interrupt the SPI flash mid-write and corrupt the bootloader. Reboot
+    # cleanly instead so recovery.bin can apply it on stable power.
+    if should_reboot_before_poweroff():
+        print("[!] EEPROM flash still pending -- rebooting to apply instead of powering off.")
+        reboot_to_apply()
+        return
+    # --- End EEPROM guard ---
+
     # Re-lock the other scripts (don't want it to start taking a photo before shutting down)
     ###------Boot Lock-------------###
     #create boot lock. This stops other scripts that might get called by cron from running
@@ -765,8 +778,14 @@ def run_shutdown_pi5_FAST():
     Shut down the raspberry pi
     """
     log_section("SHUTDOWN -- Fast")
-    
-    
+
+    # --- EEPROM safety guard: never power off with a staged flash pending ---
+    if should_reboot_before_poweroff():
+        print("[!] EEPROM flash still pending -- rebooting to apply instead of powering off.")
+        reboot_to_apply()
+        return
+    # --- End EEPROM guard ---
+
     # Re-lock the other scripts (don't want it to start taking a photo before shutting down)
     ###------Boot Lock-------------###
     #create boot lock. This stops other scripts that might get called by cron from running
@@ -1315,19 +1334,34 @@ if rpiModel == 4:
     log_info("Use an older image if you need Pi 4 support.")
 
 if rpiModel == 5:
-    desired_settings = {"POWER_OFF_ON_HALT": "1", "WAKE_ON_GPIO": "0"}
-    current_settings = check_eeprom_settings()
+    # --------------------------------------------------------------------
+    # EEPROM provisioning -- delegated to eeprom_safe.py
+    #
+    # ensure_eeprom_configured() is gated by a persistent flag so it only
+    # ever does real work once. If a change is needed it stages the update
+    # and performs a CLEAN REBOOT to apply it (never a halt/wake-alarm
+    # power-off), then verifies the live config on the next boot before
+    # declaring success. This is what prevents the "reflash the bootloader"
+    # corruption that happened when the old code staged a flash and then
+    # powered off in the same boot.
+    # --------------------------------------------------------------------
+    eeprom_status = ensure_eeprom_configured()
 
-    if all(
-        current_settings.get(key) == value for key, value in desired_settings.items()
-    ):
-        log_ok("EEPROM settings are correct.")
-    else:
-        for key, value in desired_settings.items():
-            if key not in current_settings or current_settings[key] != value:
-                current_settings[key] = value
-        set_eeprom_settings(current_settings)
-        log_ok("EEPROM settings updated.")
+    if eeprom_status == "rebooting":
+        # A reboot has already been issued inside ensure_eeprom_configured().
+        # Stop this boot's script here; the next boot will pick up from a
+        # clean slate once the EEPROM flash has been applied.
+        log_info("EEPROM update staged -- rebooting cleanly to apply. Exiting this boot.")
+        sys.exit(0)
+    elif eeprom_status == "ok":
+        log_ok("EEPROM settings verified correct.")
+    elif eeprom_status == "failed":
+        log_warn("EEPROM flash did NOT take after repeated attempts -- error pattern "
+                 "was blinked on the onboard LED. Continuing boot in a degraded state "
+                 "(device may not fully power off on halt until this is resolved).")
+    elif eeprom_status == "defer":
+        log_info("First-boot filesystem resize not finished yet -- EEPROM check deferred "
+                 "to a future boot.")
 
 # Figuring out the controls and settings
 controlsFpath="/boot/firmware/mothbox_custom/system"
