@@ -8,6 +8,19 @@ refresh the display
 and then power off the display
 leaving a 0 power high contrast display to view in the field.
 
+--------------------------------------------------------------------------
+FIRST-BOOT FILESYSTEM EXPANSION NOTICE
+--------------------------------------------------------------------------
+On a freshly-flashed, shrunk image, the root filesystem is expanded to fill
+the SD card on first boot. That can take a little while, and if this script
+runs during that window the disk-usage numbers it would normally show are
+meaningless (they reflect the shrunk size, not the real card size). Rather
+than show wrong numbers -- or worse, do a bunch of slow/irrelevant work
+(USB mount wait, voltage sensor reads, photo counting) while the resize is
+still happening -- this script checks filesystem_needs_expansion() from
+firstboot_guard.py (installed alongside the scheduler) FIRST. If expansion
+looks incomplete, it shows a simple "please wait" screen and exits early.
+--------------------------------------------------------------------------
 """
 import sys
 import os
@@ -32,6 +45,18 @@ from waveshare_epd import epd2in13_V4
 import time
 from PIL import Image,ImageDraw,ImageFont
 import traceback
+
+# --- First-boot filesystem-expansion check (see firstboot_guard.py) ---
+# Lives alongside scheduler.py at /home/pi/Desktop/Mothbox/. Import failures
+# are handled gracefully -- this display script should never crash just
+# because the guard module is missing or older.
+try:
+    from firstboot_guard import filesystem_needs_expansion
+except Exception as _e:
+    print(f"[UpdateDisplay] Could not import firstboot_guard ({_e}) -- "
+          f"skipping first-boot expansion check.")
+    filesystem_needs_expansion = None
+# --- End first-boot import ---
 
 SETTING_DEFAULTS = {
     "bat_80perVolts": 12.0,
@@ -122,6 +147,69 @@ mode = read_control(CONTROL_ROOT / "mode.txt", "mode", "ERRORMODE")
 print("Current Mothbox MODE: ", mode)
 
 
+# --------------------------------------------------------------------
+# First-boot filesystem expansion check -- show "please wait" and bail
+# out BEFORE any of the slower/less-meaningful info gathering below
+# (USB mount wait, voltage sensor reads, disk usage, photo counting).
+# --------------------------------------------------------------------
+if filesystem_needs_expansion is not None:
+    try:
+        still_expanding = filesystem_needs_expansion()
+    except Exception as e:
+        print(f"[UpdateDisplay] Error checking filesystem expansion state: {e}")
+        still_expanding = False
+
+    if still_expanding:
+        print("[UpdateDisplay] Root filesystem not yet expanded -- showing wait screen.")
+        try:
+            epd = epd2in13_V4.EPD()
+            logging.info("init and Clear (first-boot wait screen)")
+            epd.init()
+            epd.Clear(0xFF)
+
+            image = Image.new('1', (epd.height, epd.width), 255)  # landscape, matches main layout
+            draw = ImageDraw.Draw(image)
+            draw.fontmode = "1"
+
+            font_wait_big = ImageFont.truetype(
+                '/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson_Next/AtkinsonHyperlegibleNext-Bold.otf', 16
+            )
+            font_wait_small = ImageFont.truetype(
+                '/home/pi/Desktop/Mothbox/graphics/fonts/clear-sans/TTF/ClearSans-Medium.ttf', 12
+            )
+
+            lines_big = [
+                "FILE SYSTEM",
+                "EXPANDING ON",
+                "FIRST BOOT,",
+                "PLEASE WAIT",
+            ]
+            y = 6
+            for line in lines_big:
+                draw.text((4, y), line, font=font_wait_big, fill=0)
+                y += 20
+
+            y += 4
+            draw.text((4, y), "This can take a", font=font_wait_small, fill=0)
+            y += 14
+            draw.text((4, y), "few minutes. Do not", font=font_wait_small, fill=0)
+            y += 14
+            draw.text((4, y), "unplug the device.", font=font_wait_small, fill=0)
+
+            epd.display(epd.getbuffer(image))
+            logging.info("Display Go to Sleep... (first-boot wait screen)")
+            epd.sleep()
+
+        except IOError as e:
+            logging.info(e)
+        except Exception as e:
+            print(f"[UpdateDisplay] Error rendering first-boot wait screen: {e}")
+
+        # Skip the rest of the normal display update this run -- the
+        # scheduler / shutdown guard will call this again on a later
+        # attempt once the filesystem has finished expanding.
+        sys.exit(0)
+# --- End first-boot expansion check ---
 
 
 # ------------- Gathering Information to Display --------------------#
@@ -517,4 +605,3 @@ except KeyboardInterrupt:
     #epd.init()
     #epd.Clear(0xFF)
 '''
- 

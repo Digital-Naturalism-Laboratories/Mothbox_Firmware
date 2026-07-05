@@ -74,6 +74,9 @@ from eeprom_safe import (
     reboot_to_apply,
 )
 
+# First-boot filesystem-expansion guard -- must live alongside this script too
+from firstboot_guard import wait_for_firstboot_settle
+
 # -----Scheduler Functions-------------------
 def configure_display_for_mode(mode):
     """
@@ -690,6 +693,16 @@ def run_shutdown_pi5():
         return
     # --- End EEPROM guard ---
 
+    # --- Guard: don't power off while the first-boot filesystem resize may
+    # still be in flight. A fresh, shrunk image's root filesystem is much
+    # smaller than the physical SD card until this completes; cutting power
+    # mid-resize can corrupt the root filesystem. This does NOT delay the
+    # wake-alarm write below -- that already happens before power-off and
+    # only depends on clock/timezone/RTC, so scheduled wakeups stay on time
+    # regardless of resize status. ---
+    wait_for_firstboot_settle(log=log_warn)
+    # --- End first-boot guard ---
+
     # Re-lock the other scripts (don't want it to start taking a photo before shutting down)
     ###------Boot Lock-------------###
     #create boot lock. This stops other scripts that might get called by cron from running
@@ -785,6 +798,13 @@ def run_shutdown_pi5_FAST():
         reboot_to_apply()
         return
     # --- End EEPROM guard ---
+
+    # --- Guard: don't power off while the first-boot filesystem resize may
+    # still be in flight (see run_shutdown_pi5 for the full explanation).
+    # This covers the OFF-mode path and the "outside schedule -> STANDBY"
+    # path too, since both call into this function. ---
+    wait_for_firstboot_settle(log=log_warn)
+    # --- End first-boot guard ---
 
     # Re-lock the other scripts (don't want it to start taking a photo before shutting down)
     ###------Boot Lock-------------###
