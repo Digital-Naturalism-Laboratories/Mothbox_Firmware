@@ -75,7 +75,7 @@ from eeprom_safe import (
 )
 
 # First-boot filesystem-expansion guard -- must live alongside this script too
-from firstboot_guard import wait_for_firstboot_settle
+from firstboot_guard import wait_for_firstboot_settle, filesystem_needs_expansion
 
 # -----Scheduler Functions-------------------
 def configure_display_for_mode(mode):
@@ -699,15 +699,27 @@ def run_shutdown_pi5():
     # mid-resize can corrupt the root filesystem. This does NOT delay the
     # wake-alarm write below -- that already happens before power-off and
     # only depends on clock/timezone/RTC, so scheduled wakeups stay on time
-    # regardless of resize status. ---
+    # regardless of resize status.
+    #
+    # We update the ePaper display with a "please wait" message BEFORE
+    # blocking -- otherwise the wait is silent on-screen (nothing gets drawn
+    # until UpdateDisplay.py normally runs later, by which point the resize
+    # has already finished). Since e-ink holds its image with zero power,
+    # this message will sit on the display for the whole wait. ---
+    if filesystem_needs_expansion():
+        log_warn("Filesystem not yet expanded -- updating ePaper display with a "
+                 "'please wait' message before blocking on the resize.")
+        GPIO.cleanup()
+        process = subprocess.Popen(['python', '/home/pi/Desktop/Mothbox/UpdateDisplay.py'],
+                                  stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE)
+        stdout, stderr = process.communicate()
+        if stderr:
+          log_warn(f"UpdateDisplay error: {stderr.decode().strip()}")
+        else:
+          print(stdout.decode())
     wait_for_firstboot_settle(log=log_warn)
     # --- End first-boot guard ---
-
-    # Re-lock the other scripts (don't want it to start taking a photo before shutting down)
-    ###------Boot Lock-------------###
-    #create boot lock. This stops other scripts that might get called by cron from running
-
-    BOOT_LOCK = "/run/boot_script_running"
 
     # create lock
     with open(BOOT_LOCK, "w") as f:
@@ -802,7 +814,22 @@ def run_shutdown_pi5_FAST():
     # --- Guard: don't power off while the first-boot filesystem resize may
     # still be in flight (see run_shutdown_pi5 for the full explanation).
     # This covers the OFF-mode path and the "outside schedule -> STANDBY"
-    # path too, since both call into this function. ---
+    # path too, since both call into this function.
+    #
+    # Show the "please wait" message on the ePaper display BEFORE blocking --
+    # otherwise the wait is invisible on-screen. ---
+    if filesystem_needs_expansion():
+        log_warn("Filesystem not yet expanded -- updating ePaper display with a "
+                 "'please wait' message before blocking on the resize.")
+        GPIO.cleanup()
+        process = subprocess.Popen(['python', '/home/pi/Desktop/Mothbox/UpdateDisplay.py'],
+                                  stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE)
+        stdout, stderr = process.communicate()
+        if stderr:
+          log_warn(f"UpdateDisplay error: {stderr.decode().strip()}")
+        else:
+          print(stdout.decode())
     wait_for_firstboot_settle(log=log_warn)
     # --- End first-boot guard ---
 
