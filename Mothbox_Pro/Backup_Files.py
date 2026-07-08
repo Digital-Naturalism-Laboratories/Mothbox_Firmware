@@ -35,18 +35,61 @@ if os.path.exists(BOOT_LOCK):
 
 import os
 import subprocess
+
 import shutil
 import psutil
 from pathlib import Path
 from datetime import datetime
 import sys
-
-
+import time
 
 
 from pathlib import Path
 
 CONTROL_ROOT = Path("/boot/firmware/mothbox_custom/system/controls")
+
+LAST_BACKUP_FILE = CONTROL_ROOT / "last_backup_time.txt"
+
+
+def get_backup_interval():
+    path = CONTROL_ROOT / "backup_interval.txt"
+    if not path.exists():
+        return 5
+    try:
+        with open(path) as f:
+            for line in f:
+                if line.startswith("backup_interval="):
+                    return int(line.split("=", 1)[1].strip())
+    except (ValueError, IOError):
+        pass
+    return 5
+
+
+def is_backup_due():
+    interval_mins = get_backup_interval()
+    if not os.path.exists(LAST_BACKUP_FILE):
+        return True
+    try:
+        with open(LAST_BACKUP_FILE) as f:
+            last = float(f.read().strip())
+        elapsed_mins = (time.time() - last) / 60.0
+        threshold = interval_mins - 0.55
+        print(f"Backup interval check: {elapsed_mins:.2f} min elapsed, threshold {threshold:.1f} min (interval={interval_mins})")
+        return elapsed_mins >= threshold
+    except (ValueError, IOError):
+        return True
+
+
+def record_backup_done():
+    try:
+        tmp = str(LAST_BACKUP_FILE) + ".tmp"
+        with open(tmp, "w") as f:
+            f.write(str(time.time()))
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, LAST_BACKUP_FILE)
+    except IOError as e:
+        print(f"Warning: could not write last_backup_time: {e}")
 
 
 def read_control(path: Path, key: str, default=None):
@@ -91,6 +134,10 @@ logs_folder = desktop_path / "logs"
 backedup_photos_folder = desktop_path / "photos_backedup"
 
 backup_folder_name = "photos_backup_"+computerName
+
+if not is_backup_due():
+    print(f"Backup not due yet (interval={get_backup_interval()} min). Skipping.")
+    sys.exit(0)
 
 print("----------------- STARTING BACKUP FILES-------------------")
 now = datetime.now()
@@ -444,6 +491,63 @@ def get_dir_size(dir_path):
         total_size += os.path.getsize(file_path)
   return total_size
 
+def snapshot_files(folder):
+    """Return the set of all file paths currently in folder (recursive)."""
+    result = set()
+    for root, dirs, files in os.walk(str(folder)):
+        for f in files:
+            result.add(os.path.join(root, f))
+    return result
+
+
+def move_snapshot_files(file_set, source_root, dest_root):
+    """
+    Move only the files in file_set from source_root to dest_root.
+    Files that appeared in source_root after the snapshot are left untouched,
+    keeping them in photos/ so the next backup cycle picks them up.
+    """
+    if not os.path.exists(dest_root):
+        os.makedirs(dest_root)
+        os.chmod(dest_root, 0o777)
+    for source_file in sorted(file_set):
+        if not os.path.exists(source_file):
+            continue
+        rel = os.path.relpath(source_file, str(source_root))
+        dest_file = os.path.join(str(dest_root), rel)
+        os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+        shutil.move(source_file, dest_file)
+
+
+def remove_empty_dirs(folder):
+    """Remove empty subdirectories bottom-up; leaves the folder itself intact."""
+    for root, dirs, files in os.walk(str(folder), topdown=False):
+        for d in dirs:
+            dirpath = os.path.join(root, d)
+            try:
+                os.rmdir(dirpath)  # only succeeds if the directory is empty
+            except OSError:
+                pass
+
+
+def purge_oldest_backedup_until_threshold(folder, target_free_bytes):
+    """
+    Delete oldest dated subdirs from photos_backedup/ one at a time until
+    SD card free space reaches target_free_bytes.
+    Only call this when external storage is confirmed connected.
+    Never touches photos/ (fresh, unbackedup data).
+    """
+    if not os.path.exists(folder):
+        return
+    subdirs = sorted([d for d in Path(folder).iterdir() if d.is_dir()])
+    for subdir in subdirs:
+        _, current_free = get_storage_info(desktop_path)
+        if current_free >= target_free_bytes:
+            break
+        dir_size = get_dir_size(subdir)
+        shutil.rmtree(subdir)
+        print(f"Purged oldest backed-up folder: {subdir} ({dir_size/1e9:.2f} GB freed)")
+
+
 def backup_and_delete(source_folder, destination_folder):
   """
   Back up files and delete them
@@ -492,32 +596,23 @@ if __name__ == "__main__":
     if not os.path.exists(photos_folder):
         print("Photos folder not found, exiting.")
         exit(1)
-    # Get total and available space on desktop and external storage
+
+    # Get total and available space on desktop
     desktop_total, desktop_available = get_storage_info(desktop_path)
     print("Desktop Total    Storage: \t" + str(desktop_total/1000000000))
     print("Desktop Available Storage: \t" + str(desktop_available/1000000000))
 
-    """
-  Finds storage capacity of all external drives and ranks them by size.
-  """
-    disks = {}  
-    # CHANGE: Look in /media instead of /media/pi
+    # Find all external drives and rank by available space (descending)
+    disks = {}
     for mount_point in os.listdir("/media"):
         path = Path(f"/media/{mount_point}")
-        
-        # SAFETY: Ignore internal SD card and the 'pi' subdirectory
         if mount_point == "pi" or "mmcblk" in mount_point:
             continue
-
         if path.is_dir() and is_mounted(path):
             total_size, available_size = get_storage_info(path)
-            
-            # SAFETY: Only add if it's a real drive with capacity
             if total_size > 0:
                 disks[path] = total_size, available_size
 
-    # Sort disks by capacity (descending)
-    # Check if any disks were found before sorting and printing
     print("~~~sorting disks~~~~~~")
     if disks:
         sorted_disks = sorted(disks.items(), key=lambda item: item[1][0], reverse=True)
@@ -528,78 +623,66 @@ if __name__ == "__main__":
             )
     else:
         print("No external drives found.")
-        print(
-            "stuff never worked out with this backup, your files are not properly backedup"
-        )
-
+        print("Skipping backup. Not purging photos_backedup because no external storage is available to confirm data is safe.")
         exit(1)
     print("~~~sorted~~~~~~")
-    
-    #First, we should check and make sure that our internal disk isn't filling up with photos and causing problems
-    # Check if internal storage has less than X GB left
+
+    # Check if internal storage is running low.
+    # Only purge backed-up photos if external storage is confirmed present (already checked above).
+    # Never purge photos/ (unbackedup fresh data).
     x = internal_storage_minimum
-    print("Interal storage threshold: "+str( x * 1024**3/1000000000))
-    if desktop_available < x * 1024**3:  # x GB in bytes
-        delete_folder_contents(backedup_photos_folder)
-        print(
-            "Original photos that had been externally backed up have now been deleted due to low internal storage."
-        )
+    print("Internal storage threshold: " + str(x * 1024**3/1000000000))
+    if desktop_available < x * 1024**3:
+        print("Low internal storage — purging oldest backed-up photos (external storage confirmed present).")
+        purge_oldest_backedup_until_threshold(backedup_photos_folder, x * 1024**3)
+        # Refresh available space after purge
+        _, desktop_available = get_storage_info(desktop_path)
+        print(f"Internal storage after purge: {desktop_available/1000000000:.2f} GB available")
     else:
-        print(
-            "More than "
-            + str(x)
-            + "GB remain so original backed up files are kept"
-        )
-  
-    
-    
-    
+        print("More than " + str(x) + "GB remain so original backed up files are kept")
+
     thingsworkedok = False
-    # this is the loop where we make stuff happen
-    # iterate through the disks, starting with the largest
-    # see if it has enough available space, if not, choose the next largest
+    # Iterate through disks starting with the largest; back up to the first one with enough room
     for disk_name, capacity in sorted_disks:
-        print("chosen Disk: "+str(disk_name))
+        print("chosen Disk: " + str(disk_name))
         total_available, external_available = capacity
-        print("total available \t"+str(total_available/1000000000)) 
-        # Check if external storage has more available space than desktop
-        dir_path = photos_folder
-        total_size_bytes = get_dir_size(dir_path)
-        print("total needed \t\t"+str(total_size_bytes/1000000000))
+        print("total available \t" + str(total_available/1000000000))
+        total_size_bytes = get_dir_size(photos_folder)
+        print("total needed \t\t" + str(total_size_bytes/1000000000))
         if external_available > total_size_bytes:
-            # Create backup folder on external storage
             external_backup_folder = disk_name / backup_folder_name
+            # Snapshot which files exist NOW before the copy starts.
+            # Any photo TakePhoto writes during the copy won't be in this set
+            # and will stay in photos/ safely for the next backup cycle.
+            files_to_move = snapshot_files(photos_folder)
             print(f"doing the backup to external: {external_backup_folder}")
-            #using the non-rsync way for now because rsync was giving errors
-            copy_folders_with_files(photos_folder, external_backup_folder) #don't copy blank folders
-            #copy_photos_to_backup(photos_folder, external_backup_folder)
-            print(f"Photos successfully copied to external backup folder: {external_backup_folder}")            
+            copy_folders_with_files(photos_folder, external_backup_folder)  # skips blank folders
+            print(f"Photos successfully copied to external backup folder: {external_backup_folder}")
 
-            logfolder="logs_"+computerName
+            logfolder = "logs_" + computerName
             external_logs_folder = disk_name / logfolder
-            copy_photos_to_backup(logs_folder,external_logs_folder)
-            print(f"Logs successfully copied to external backup folder: {external_backup_folder}")            
+            copy_photos_to_backup(logs_folder, external_logs_folder)
+            print(f"Logs successfully copied to external backup folder: {external_logs_folder}")
 
-            differences="" #skipping verify
-            #differences = verify_copy(photos_folder, external_backup_folder)
+            differences = ""  # skipping verify
             if differences:
-              print("Differences found:")
-              for difference in differences:
-                print(difference)
+                print("Differences found:")
+                for difference in differences:
+                    print(difference)
             else:
-              #print("Copy verification successful! No differences found.") #currently a lie
-              #print("moving original files to backedup_photos_folder")
-              move_folder_contents(photos_folder, backedup_photos_folder)
-              print(f"Photos successfully copied to internal backup folder: {backedup_photos_folder}")
-            thingsworkedok=True #just hacking this to skip the verify
-            if(thingsworkedok):
-              break
-              
+                move_snapshot_files(files_to_move, photos_folder, backedup_photos_folder)
+                remove_empty_dirs(photos_folder)  # clean up empty dated subfolders left by move
+                print(f"Photos moved to internal backup folder: {backedup_photos_folder}")
+            thingsworkedok = True
+            if thingsworkedok:
+                break
         else:
             print("This External storage doesn't have enough space for backup.\n Trying next available storage if there is one ")
+
     if thingsworkedok == False:
         print("stuff never worked out with this backup, your files are not properly backedup")
     else:
+        record_backup_done()
         print("stuff worked out BACKUP COMPLETE")
     print("end")
 quit()
