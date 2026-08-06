@@ -120,6 +120,7 @@
   }
   input[type=number] { max-width: 9rem; }
   input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  input:disabled { opacity: .6; cursor: not-allowed; }
   .row { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
   .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
   .seg button {
@@ -304,9 +305,9 @@
         <label class="lbl" for="f-manualTime">Manual clock time</label>
         <div class="row">
           <input type="text" id="f-manualTime" data-key="manualTime" placeholder="YYYY-MM-DD HH:MM:SS" autocomplete="off" spellcheck="false">
-          <button id="btn-now" type="button">Use right now</button>
+          <button id="btn-now" type="button">Use Right Now Plus 2 Minutes</button>
         </div>
-        <p class="hint">Applied <strong>once</strong>, then automatic time setting turns itself back on. Format: <code>YYYY-MM-DD HH:MM:SS</code>.</p>
+        <p class="hint">Applied <strong>once</strong>, then automatic time setting turns itself back on. Format: <code>YYYY-MM-DD HH:MM:SS</code>. The two extra minutes give you time to save this file and get the card into the Mothbox before that moment arrives.</p>
         <div class="fielderr" id="e-manualTime"></div>
       </div>
     </section>
@@ -450,9 +451,9 @@
     </section>
 
     <section>
-      <h2>Two things that break Mothboxes</h2>
+      <h2>Two things that can make Mothboxes not work</h2>
       <ul class="tips">
-        <li><strong>Don&rsquo;t open the CSV on the card with Excel, Numbers, Vim, Sublime or Notepad++.</strong> They leave swap files and backups on the tiny boot partition and rewrite the file with different encodings and line endings. Use this page instead.</li>
+        <li><strong>Don&rsquo;t open the CSV on the card with Excel, Numbers, Vim, Sublime or Notepad++.</strong> They can possibly leave swap files and backups on the tiny boot partition and rewrite the file with different encodings and line endings. Use this page instead.</li>
         <li><strong>Always eject the card properly</strong> and wait until the computer says it is safe before pulling it out. Yanking it mid-write corrupts the boot partition, and then the Pi just blinks at you.</li>
       </ul>
     </section>
@@ -904,7 +905,9 @@ function buildStaticControls() {
   });
 
   $("btn-now").addEventListener("click", () => {
-    const d = new Date();
+    /* Two minutes ahead: enough time to save the file and get the card
+       into the Mothbox before the clock it is being given comes around. */
+    const d = new Date(Date.now() + 2 * 60 * 1000);
     const p = (n) => String(n).padStart(2, "0");
     setVal("manualTime", d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) +
       " " + p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds()));
@@ -1003,6 +1006,7 @@ function doRefresh(skipEl) {
 
   /* --- name --- */
   const name = getVal("name");
+  setFieldEnabled($("f-name").parentElement, !isTrue(getVal("autoname")));
   fieldErr("e-name", (() => {
     if (!isTrue(getVal("autoname"))) {
       if (!name) return "With auto-naming off, the Mothbox needs a name here.";
@@ -1012,7 +1016,6 @@ function doRefresh(skipEl) {
     }
     return "";
   })(), errors);
-  $("f-name").parentElement.style.opacity = isTrue(getVal("autoname")) ? ".6" : "1";
 
   /* --- timezone --- */
   const tz = getVal("timezone");
@@ -1028,7 +1031,7 @@ function doRefresh(skipEl) {
 
   /* --- manual time --- */
   const autoTime = isTrue(getVal("autoSystemTime"));
-  $("wrap-manualTime").style.opacity = autoTime ? ".6" : "1";
+  setFieldEnabled($("wrap-manualTime"), !autoTime);
   const mt = getVal("manualTime");
   let mtErr = "";
   if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(mt)) {
@@ -1148,6 +1151,13 @@ function numOf(v) {
   const s = String(v).trim();
   if (s === "" || !/^-?\d*\.?\d+$/.test(s)) return NaN;
   return parseFloat(s);
+}
+/* Fields that only apply when their Yes/No switch is set to No get greyed
+   out and locked, rather than sitting there inviting edits that do nothing. */
+function setFieldEnabled(wrap, on) {
+  if (!wrap) return;
+  wrap.style.opacity = on ? "1" : ".55";
+  wrap.querySelectorAll("input, button").forEach((el) => { el.disabled = !on; });
 }
 function setInput(id, value, skipEl) {
   const el = $(id);
