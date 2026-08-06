@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mothbox Settings Editor</title>
+<link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAErElEQVR4Xu2ZT0hUQRzH3wZqRYnIKrtbBrFGvZQOIW50CIo6hIQeoig72LEOXTrVoUuHLh0y6A9E1KWgTgZWgnUIKtjyZKYedAnW1txdUNlI14KXTxuZHec385v3Zve92O3Wvnm/+X0/853fb+YZMMr8X6DM9RsVABUHlDmByhbw0gB9wVHLnr8ru9ezhfBsYlt42QCwhfJWWQSgVHC0OQASSVbaCQBoa+iEowRAJhLaz1DCqr9jts1gKGkd+9GE1oUeSE9+5JHZUHsikGULqKogXeNJHk6coQSAhmAsHyK7sua690X7nbW0CAC0ZToHzOpAW+A3Fr6syykDsAO+CiasJWNxJbaKKHY8D4C6K8aWW+lKN3XUTrkriA2mkixWLHZcoRvl4knc5s6I0fqwbk33OgDvWlLW7MzcmnNkhxSsjbP9efN9z+QoHQ8Sy3MV1mnQ1iC/s3GEW4AkKHMEtviw9QELwMl+x+aOqgGYYBgIojZKV3KR62TzYHKlgaIAsG1Gtd/LKjH2OebkKHMrO5cSACwIrCAd41RXHARAB4ISkxVEHYJ0xFDRsuYAzEt0cn6D4TR/xwD8AENVNC9nLQCgHqvDzrwYboSzuWoFwAPBJnvgVvRq6FzNDZ6wqQeLN4euJC5D7tIhHATAHi11rB50euO1KiKuakOV0ZHeVdCddApn50ZNhDmYiIDJjrGyO4VKbHosBI7OB30Z4gXbfXr7uHmn1uSdD3hJs/cA+/9Dx7PW1Od0wU1OtuJ0nNehhJX/s3ozhbZO4nru2XBv8hTPeei7gGxL8C45Mgjsc5Hw2P1oa/hkzVcsbGyX4gL40JKxMjMZmWbwOWv5j/syVjq1Go88Y8WyvzdGGoyDww2oLYpJNBxtNGLx4Dq9oANkNsRMyusKomIrKpoq87FjDw2YdfVtgXleDOldQCeILdVbjaOppoCoOOmcj7fnWQhCB0B2dbMadsxSAaDzhzoZagvoAEEnED+ctqa/FH5Upp9PP//VHr/4Le4UNIk1cS3XN3I32SlyAgoAxkqpp/k9ny5NjpGk229HzcjZmnGRCNnHDfKum9hQHSK/owFg2wp21aAugH1fpYVqcQDU06EPErzVpT+J8eoAqQ+YD6f0ymIKp6saAK2KHXT4zNxsYjBVx1LG2psXmwdK93Hc1RZg95XssxQtCHMOeLvtu5XLz3P/0MHO9SI4Zln//jAi2j5FcQC96iIbsu1I1gYxXQczBlO3HBVBlrQoGfYZdn9DMXfEQgv7X9ZvFjkJqldKJ0FMYYFAiCq0ykEIsi3W9iVzgErrUgGgElc2tmg1QDaxyCXTTxYv2M/D3RvvkXFOnIfJwXcAZNdhjCiVMf8FgJGeuYWJ/tRGFWHYsb4BQFon7YAqo9royDaDt0SsSE/OAU6Si/XuPB/u3vSYPi2+iSStn0s5J+FQ7/jKAfQBqtjFj8T3HQDUsmkcpAygVCujUSM3lOgSZb8g/SZIRy1Wj9YNQSaank8JgJ9hqIjWAsAPMJyK1g6glDB0iC4qgGLA0C26ZADcwCimaE8AYGCUSrTnAHS3PTfxHLdBN5P66d0KAD+thhe5VBzgBXU/zfkXmP+EbjLVQy0AAAAASUVORK5CYII=">
 <style>
   :root {
     --bg: #f6f5f2;
@@ -54,9 +55,9 @@
     top: 0;
     z-index: 20;
   }
-  .wrap { max-width: 1000px; margin: 0 auto; }
-  h1 { margin: 0 0 .15rem; font-size: 1.25rem; letter-spacing: .01em; }
-  h1 .moth { opacity: .8; }
+  .wrap { max-width: 1120px; margin: 0 auto; }
+  h1 { margin: 0 0 .15rem; font-size: 1.25rem; letter-spacing: .01em; display: flex; align-items: center; gap: .5rem; }
+  h1 .moth { display: block; width: 28px; height: 28px; }
   .sub { color: var(--muted); font-size: .85rem; margin: 0; }
   .toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-top: .8rem; }
   button, .filebtn {
@@ -78,7 +79,15 @@
   button:disabled { opacity: .45; cursor: not-allowed; }
   button.primary:disabled { background: var(--muted); border-color: var(--muted); color: var(--panel); }
   input[type=file] { display: none; }
-  main { max-width: 1000px; margin: 0 auto; padding: 0 1.25rem; }
+  main { max-width: 1120px; margin: 0 auto; padding: 0 1.25rem; }
+  /* Schedule: controls on the left, what they add up to on the right. */
+  .twocol { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 1.8rem; }
+  .twocol > div { min-width: 0; }
+  .twocol .outcome { position: sticky; top: 8.5rem; align-self: start; }
+  @media (max-width: 900px) {
+    .twocol { grid-template-columns: minmax(0, 1fr); }
+    .twocol .outcome { position: static; }
+  }
   section {
     background: var(--panel);
     border: 1px solid var(--line);
@@ -119,12 +128,13 @@
     background: transparent;
   }
   .seg button[aria-pressed=true] { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
-  .days { display: flex; flex-wrap: wrap; gap: .4rem; }
+  .days { display: flex; flex-wrap: wrap; gap: .35rem; }
   .day {
     border: 1px solid var(--line);
     border-radius: 999px;
     padding: .35rem .1rem;
-    width: 4.6rem;
+    flex: 1 1 3.2rem;
+    max-width: 4.6rem;
     text-align: center;
     cursor: pointer;
     user-select: none;
@@ -230,7 +240,7 @@
 
 <header>
   <div class="wrap">
-    <h1><span class="moth">&#129417;</span> Mothbox Settings Editor</h1>
+    <h1><img class="moth" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAErElEQVR4Xu2ZT0hUQRzH3wZqRYnIKrtbBrFGvZQOIW50CIo6hIQeoig72LEOXTrVoUuHLh0y6A9E1KWgTgZWgnUIKtjyZKYedAnW1txdUNlI14KXTxuZHec385v3Zve92O3Wvnm/+X0/853fb+YZMMr8X6DM9RsVABUHlDmByhbw0gB9wVHLnr8ru9ezhfBsYlt42QCwhfJWWQSgVHC0OQASSVbaCQBoa+iEowRAJhLaz1DCqr9jts1gKGkd+9GE1oUeSE9+5JHZUHsikGULqKogXeNJHk6coQSAhmAsHyK7sua690X7nbW0CAC0ZToHzOpAW+A3Fr6syykDsAO+CiasJWNxJbaKKHY8D4C6K8aWW+lKN3XUTrkriA2mkixWLHZcoRvl4knc5s6I0fqwbk33OgDvWlLW7MzcmnNkhxSsjbP9efN9z+QoHQ8Sy3MV1mnQ1iC/s3GEW4AkKHMEtviw9QELwMl+x+aOqgGYYBgIojZKV3KR62TzYHKlgaIAsG1Gtd/LKjH2OebkKHMrO5cSACwIrCAd41RXHARAB4ISkxVEHYJ0xFDRsuYAzEt0cn6D4TR/xwD8AENVNC9nLQCgHqvDzrwYboSzuWoFwAPBJnvgVvRq6FzNDZ6wqQeLN4euJC5D7tIhHATAHi11rB50euO1KiKuakOV0ZHeVdCddApn50ZNhDmYiIDJjrGyO4VKbHosBI7OB30Z4gXbfXr7uHmn1uSdD3hJs/cA+/9Dx7PW1Od0wU1OtuJ0nNehhJX/s3ozhbZO4nru2XBv8hTPeei7gGxL8C45Mgjsc5Hw2P1oa/hkzVcsbGyX4gL40JKxMjMZmWbwOWv5j/syVjq1Go88Y8WyvzdGGoyDww2oLYpJNBxtNGLx4Dq9oANkNsRMyusKomIrKpoq87FjDw2YdfVtgXleDOldQCeILdVbjaOppoCoOOmcj7fnWQhCB0B2dbMadsxSAaDzhzoZagvoAEEnED+ctqa/FH5Upp9PP//VHr/4Le4UNIk1cS3XN3I32SlyAgoAxkqpp/k9ny5NjpGk229HzcjZmnGRCNnHDfKum9hQHSK/owFg2wp21aAugH1fpYVqcQDU06EPErzVpT+J8eoAqQ+YD6f0ymIKp6saAK2KHXT4zNxsYjBVx1LG2psXmwdK93Hc1RZg95XssxQtCHMOeLvtu5XLz3P/0MHO9SI4Zln//jAi2j5FcQC96iIbsu1I1gYxXQczBlO3HBVBlrQoGfYZdn9DMXfEQgv7X9ZvFjkJqldKJ0FMYYFAiCq0ykEIsi3W9iVzgErrUgGgElc2tmg1QDaxyCXTTxYv2M/D3RvvkXFOnIfJwXcAZNdhjCiVMf8FgJGeuYWJ/tRGFWHYsb4BQFon7YAqo9royDaDt0SsSE/OAU6Si/XuPB/u3vSYPi2+iSStn0s5J+FQ7/jKAfQBqtjFj8T3HQDUsmkcpAygVCujUSM3lOgSZb8g/SZIRy1Wj9YNQSaank8JgJ9hqIjWAsAPMJyK1g6glDB0iC4qgGLA0C26ZADcwCimaE8AYGCUSrTnAHS3PTfxHLdBN5P66d0KAD+thhe5VBzgBXU/zfkXmP+EbjLVQy0AAAAASUVORK5CYII=" alt="" width="28" height="28"> Mothbox Settings Editor</h1>
     <p class="sub">Edits the <code>mothbox_settings.csv</code> sitting next to this page. No spreadsheet, no text editor, no broken files.</p>
     <div class="toolbar">
       <button id="btn-save" class="primary" disabled>Save</button>
@@ -304,6 +314,9 @@
       <h2>Schedule</h2>
       <p class="sechint">The Mothbox wakes on every selected day, at every selected hour, at the chosen minute.</p>
 
+      <div class="twocol">
+      <div>
+
       <div class="field">
         <label class="lbl">Days of the week</label>
         <div class="days" id="f-weekday"></div>
@@ -353,6 +366,9 @@
         <div class="fielderr" id="e-photo_interval"></div>
       </div>
 
+      </div>
+      <div class="outcome">
+
       <div class="field">
         <label class="lbl">What this schedule does</label>
         <div class="timeline" id="timeline"></div>
@@ -360,35 +376,8 @@
         <div id="schedwarn"></div>
         <div class="chips" id="wakechips"></div>
       </div>
-    </section>
 
-    <section>
-      <h2>Battery</h2>
-      <p class="sechint">Used for the battery gauge and the low-power shutdown. Read these off the battery itself.</p>
-
-      <div class="field" id="wrap-bat_voltage">
-        <label class="lbl" for="f-bat_voltage">Nominal voltage (V)</label>
-        <input type="number" id="f-bat_voltage" data-key="bat_voltage" step="0.1" min="0">
-        <div class="fielderr" id="e-bat_voltage"></div>
       </div>
-
-      <div class="field" id="wrap-bat_Wh">
-        <label class="lbl" for="f-bat_Wh">Capacity (watt-hours)</label>
-        <input type="number" id="f-bat_Wh" data-key="bat_Wh" step="1" min="0">
-        <p class="hint">TalentCell PB1202B is 142 Wh. Only have amp-hours? Multiply Ah &times; volts.</p>
-        <div class="fielderr" id="e-bat_Wh"></div>
-      </div>
-
-      <div class="field">
-        <label class="lbl" for="f-bat_80perVolts">Voltage at 80% full (V)</label>
-        <input type="number" id="f-bat_80perVolts" data-key="bat_80perVolts" step="0.1" min="0">
-        <div class="fielderr" id="e-bat_80perVolts"></div>
-      </div>
-
-      <div class="field">
-        <label class="lbl" for="f-bat_20perVolts">Voltage at 20% full (V)</label>
-        <input type="number" id="f-bat_20perVolts" data-key="bat_20perVolts" step="0.1" min="0">
-        <div class="fielderr" id="e-bat_20perVolts"></div>
       </div>
     </section>
 
@@ -409,6 +398,41 @@
         </div>
         <p class="hint">Stored as plain text in the CSV, exactly as it always has been. Leave the examples alone if you are not adding a network.</p>
         <div class="fielderr" id="e-wifipass"></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Battery</h2>
+      <p class="sechint">Used for the battery gauge and the low-power shutdown. Read these off the battery itself.</p>
+
+      <div class="twocol">
+      <div>
+        <div class="field" id="wrap-bat_voltage">
+          <label class="lbl" for="f-bat_voltage">Nominal voltage (V)</label>
+          <input type="number" id="f-bat_voltage" data-key="bat_voltage" step="0.1" min="0">
+          <div class="fielderr" id="e-bat_voltage"></div>
+        </div>
+
+        <div class="field" id="wrap-bat_Wh">
+          <label class="lbl" for="f-bat_Wh">Capacity (watt-hours)</label>
+          <input type="number" id="f-bat_Wh" data-key="bat_Wh" step="1" min="0">
+          <p class="hint">TalentCell PB1202B is 142 Wh. Only have amp-hours? Multiply Ah &times; volts.</p>
+          <div class="fielderr" id="e-bat_Wh"></div>
+        </div>
+      </div>
+      <div>
+        <div class="field">
+          <label class="lbl" for="f-bat_80perVolts">Voltage at 80% full (V)</label>
+          <input type="number" id="f-bat_80perVolts" data-key="bat_80perVolts" step="0.1" min="0">
+          <div class="fielderr" id="e-bat_80perVolts"></div>
+        </div>
+
+        <div class="field">
+          <label class="lbl" for="f-bat_20perVolts">Voltage at 20% full (V)</label>
+          <input type="number" id="f-bat_20perVolts" data-key="bat_20perVolts" step="0.1" min="0">
+          <div class="fielderr" id="e-bat_20perVolts"></div>
+        </div>
+      </div>
       </div>
     </section>
 
@@ -624,7 +648,8 @@ const DEFAULTS = [
    loaded file lands in the "Other settings" section as a text box. */
 const HANDLED = new Set(["autoname", "name", "timezone", "autoSystemTime", "manualTime",
   "runtime", "weekday", "hour", "minute", "bat_voltage", "bat_Wh",
-  "bat_80perVolts", "bat_20perVolts", "wifissid", "wifipass", "photo_interval"]);
+  "bat_80perVolts", "bat_20perVolts", "wifissid", "wifipass", "photo_interval",
+  "second"]);   /* 'second' is not used by the Mothbox -- kept in the file, not shown */
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
