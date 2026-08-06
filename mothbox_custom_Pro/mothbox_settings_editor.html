@@ -204,6 +204,8 @@
     background: var(--panel);
   }
   .drop.hot { border-color: var(--accent); color: var(--accent); }
+  .drop strong { display: block; color: var(--ink); font-size: 1.02rem; margin-bottom: .4rem; }
+  .drop #dropwhy { display: block; max-width: 42rem; margin: 0 auto; font-size: .85rem; }
   .status { font-size: .84rem; color: var(--muted); }
   .status.good { color: var(--ok); }
   ul.tips { margin: .4rem 0 0; padding-left: 1.1rem; color: var(--muted); font-size: .87rem; }
@@ -231,17 +233,18 @@
     <h1><span class="moth">&#129417;</span> Mothbox Settings Editor</h1>
     <p class="sub">Edits the <code>mothbox_settings.csv</code> sitting next to this page. No spreadsheet, no text editor, no broken files.</p>
     <div class="toolbar">
-      <button id="btn-open" class="primary">Open mothbox_settings.csv&hellip;</button>
-      <input type="file" id="fileinput" accept=".csv,text/csv">
-      <button id="btn-save" disabled>Save</button>
+      <button id="btn-save" class="primary" disabled>Save</button>
       <button id="btn-defaults">Stock settings</button>
-      <span class="status" id="status">Open the <code>mothbox_settings.csv</code> in this folder to get started.</span>
+      <span class="status" id="status">Looking for mothbox_settings.csv&hellip;</span>
     </div>
   </div>
 </header>
 
 <main>
-  <div class="drop" id="drop">&hellip;or drop <strong>mothbox_settings.csv</strong> here</div>
+  <div class="drop" id="drop">
+    <strong>Drag <code>mothbox_settings.csv</code> from this folder onto this page.</strong>
+    <span id="dropwhy"></span>
+  </div>
 
   <div id="loaderrors"></div>
 
@@ -1106,7 +1109,6 @@ function doRefresh(skipEl) {
   const btn = $("btn-save");
   btn.disabled = errors.length > 0;
   btn.className = errors.length ? "" : "primary";
-  $("btn-open").className = "";
   btn.textContent = errors.length
     ? "Fix " + errors.length + " problem" + (errors.length > 1 ? "s" : "") + " to save"
     : (fileHandle ? "Save into " + loadedName : "Save mothbox_settings.csv");
@@ -1262,57 +1264,75 @@ function showForm() {
  * ------------------------------------------------------------------ */
 buildStaticControls();
 
-/* When the browser supports it (Chrome/Edge, including from a file:// page)
-   we keep a handle on the CSV and write straight back into it. Otherwise we
-   fall back to a plain file picker and a download. */
+/* ------------------------------------------------------------------ *
+ * Getting hold of the CSV next door.
+ *
+ * Two routes, tried in this order:
+ *   1. Just read it. Works when this page is served over http (e.g. from
+ *      the Mothbox itself), and is the whole story when it does.
+ *   2. A handle to the file, which lets us read AND write it in place.
+ *      Browsers will not hand one out without the file being pointed at
+ *      once, so the first time you drag the CSV onto the page; after that
+ *      the handle is remembered and reopening is a single click.
+ * ------------------------------------------------------------------ */
 let fileHandle = null;
-const canWriteInPlace = typeof window.showOpenFilePicker === "function";
+const canHandle = typeof window.FileSystemFileHandle === "function" &&
+                  typeof DataTransferItem !== "undefined" &&
+                  typeof DataTransferItem.prototype.getAsFileSystemHandle === "function";
 
-$("btn-open").addEventListener("click", async () => {
-  if (!canWriteInPlace) { $("fileinput").click(); return; }
+async function useHandle(h) {
+  if (await h.requestPermission({ mode: "readwrite" }) !== "granted") return false;
+  const f = await h.getFile();
+  fileHandle = h;
+  loadText(await f.text(), f.name);
+  return true;
+}
+
+async function startup() {
+  /* Served over http (from the Mothbox, or any local web server): just read
+     the neighbour and we are done -- nothing for the user to do. */
   try {
-    const [h] = await window.showOpenFilePicker({
-      multiple: false,
-      types: [{ description: "Mothbox settings", accept: { "text/csv": [".csv"] } }]
-    });
-    const f = await h.getFile();
-    fileHandle = h;
-    loadText(await f.text(), f.name);
-  } catch (err) {
-    if (err && err.name === "AbortError") return;   // user closed the dialog
-    fileHandle = null;
-    $("fileinput").click();                          // picker unavailable -- old way
-  }
-});
+    const r = await fetch("mothbox_settings.csv", { cache: "no-store" });
+    if (r.ok) { loadText(await r.text(), "mothbox_settings.csv"); return; }
+  } catch (e) { /* opened straight off the disk -- browsers forbid this read */ }
 
-$("fileinput").addEventListener("change", (e) => {
-  const f = e.target.files[0];
-  if (f) { fileHandle = null; readFile(f); }
-  e.target.value = "";
-});
+  setStatus("Drag mothbox_settings.csv onto this page to edit it.");
+  $("dropwhy").textContent = canHandle
+    ? "Opened straight from the card, a browser will not let this page read the file next to it until you point at it — dragging it over is that one step. Everything after that, including saving, goes straight back into the same file."
+    : "This browser cannot write files directly: it will put the edited copy in your downloads for you to drop onto the card. Chrome or Edge save in place instead.";
+}
 
 $("btn-defaults").addEventListener("click", () => {
   if ($("form").hidden || confirm("Throw away the settings on screen and start from the stock ones?")) {
-    fileHandle = null;
     loadDefaults();
   }
 });
 
 $("btn-save").addEventListener("click", async () => {
   const text = serialize();
+
   if (fileHandle) {
     try {
-      const perm = await fileHandle.requestPermission({ mode: "readwrite" });
-      if (perm !== "granted") throw new Error("permission denied");
+      if (await fileHandle.requestPermission({ mode: "readwrite" }) !== "granted") throw new Error("permission refused");
       const w = await fileHandle.createWritable();
       await w.write(text);
       await w.close();
-      setStatus("Saved into " + loadedName + ". Eject the card properly before pulling it out.", true);
+      setStatus("Saved into " + loadedName + " at " + new Date().toLocaleTimeString() +
+                ". Eject the card properly before pulling it out.", true);
       return;
     } catch (err) {
-      setStatus("Could not write to the file directly (" + (err && err.message ? err.message : "unknown") + ") — downloading a copy instead.");
+      setStatus("Could not write the file directly (" + (err && err.message ? err.message : "unknown") + ") — saving a copy instead.");
     }
   }
+
+  /* served over http: try writing back to where we read it from */
+  if (location.protocol.startsWith("http")) {
+    try {
+      const r = await fetch("mothbox_settings.csv", { method: "PUT", body: text });
+      if (r.ok) { setStatus("Saved into mothbox_settings.csv.", true); return; }
+    } catch (e) { /* plain file servers say no -- fall through to a download */ }
+  }
+
   const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -1321,16 +1341,10 @@ $("btn-save").addEventListener("click", async () => {
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-  setStatus("Saved to your downloads. Copy it onto the card, replacing the old file, then eject the card properly.", true);
+  setStatus("Saved to your downloads — copy it onto the card, replacing the old file, then eject the card properly.", true);
 });
 
-function readFile(f) {
-  const r = new FileReader();
-  r.onload = () => loadText(String(r.result), f.name);
-  r.onerror = () => fail("Could not read that file.");
-  r.readAsText(f, "utf-8");
-}
-
+/* --- drag and drop: the one gesture that gets us a writable handle --- */
 const drop = $("drop");
 ["dragenter", "dragover"].forEach((ev) => document.addEventListener(ev, (e) => {
   e.preventDefault();
@@ -1343,10 +1357,33 @@ const drop = $("drop");
   drop.classList.remove("hot");
   if (!$("form").hidden) drop.hidden = true;
 }));
-document.addEventListener("drop", (e) => {
-  const f = e.dataTransfer && e.dataTransfer.files[0];
-  if (f) readFile(f);
+document.addEventListener("drop", async (e) => {
+  const dt = e.dataTransfer;
+  if (!dt) return;
+  /* Everything must come off the drop event before the first await --
+     the browser empties dataTransfer as soon as the handler yields. */
+  const item = dt.items && dt.items[0];
+  const plainFile = dt.files && dt.files[0];
+  const handlePromise = (canHandle && item && item.kind === "file")
+    ? item.getAsFileSystemHandle() : null;
+
+  if (handlePromise) {
+    try {
+      const h = await handlePromise;
+      if (h && h.kind === "file" && await useHandle(h)) return;
+    } catch (err) { /* fall back to reading it as a plain file */ }
+  }
+  if (plainFile) { fileHandle = null; readFile(plainFile); }
 });
+
+function readFile(f) {
+  const r = new FileReader();
+  r.onload = () => loadText(String(r.result), f.name);
+  r.onerror = () => fail("Could not read that file.");
+  r.readAsText(f, "utf-8");
+}
+
+startup();
 </script>
 </body>
 </html>
