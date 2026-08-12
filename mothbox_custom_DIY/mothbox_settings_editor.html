@@ -296,7 +296,7 @@
       </div>
 
       <div class="field">
-        <label class="lbl">Set the clock automatically</label>
+        <label class="lbl">Set the clock automatically (Should only need to set the clock once)</label>
         <div class="seg" id="f-autoSystemTime" data-key="autoSystemTime"></div>
         <p class="hint">Leave this on unless the Mothbox has no way to learn the time (no GPS, no network).</p>
       </div>
@@ -375,6 +375,7 @@
         <label class="lbl">What this schedule does</label>
         <div class="timeline" id="timeline"></div>
         <div class="stats" id="schedstats"></div>
+        <p class="hint" id="statnote"></p>
         <div id="schedwarn"></div>
         <div class="chips" id="wakechips"></div>
       </div>
@@ -451,9 +452,9 @@
     </section>
 
     <section>
-      <h2>Two things that break Mothboxes</h2>
+      <h2>Two things that can make Mothboxes not work</h2>
       <ul class="tips">
-        <li><strong>Don&rsquo;t open the CSV on the card with Excel, Numbers, Vim, Sublime or Notepad++.</strong> They leave swap files and backups on the tiny boot partition and rewrite the file with different encodings and line endings. Use this page instead.</li>
+        <li><strong>Don&rsquo;t open the CSV on the card with Excel, Numbers, Vim, Sublime or Notepad++.</strong> They can possibly leave swap files and backups on the tiny boot partition and rewrite the file with different encodings and line endings. Use this page instead.</li>
         <li><strong>Always eject the card properly</strong> and wait until the computer says it is safe before pulling it out. Yanking it mid-write corrupts the boot partition, and then the Pi just blinks at you.</li>
       </ul>
     </section>
@@ -1223,22 +1224,57 @@ function drawSchedule(wd, hrs, mins, runtime, interval) {
   axis.innerHTML = "<div></div><div><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>";
   tl.appendChild(axis);
 
-  /* numbers */
-  const perDay = validHrs.length * validMins.length;
-  const sessionsPerWeek = perDay * validDays.length;
+  /* --- what one night adds up to ---
+     A night runs from noon to the following noon, which is how TakePhoto.py
+     files photos into folders: a dusk-to-dawn run is one night, not two
+     half-nights either side of midnight. */
+  const nights = Array.from({ length: 7 }, () => []);   /* index = weekday the night starts on */
+  validDays.forEach((d) => validHrs.forEach((h) => validMins.forEach((m) => {
+    const nightIdx = (h >= 12) ? (d - 1) : (d + 5) % 7;  /* before noon belongs to the night before */
+    const sinceNoon = ((h >= 12 ? h - 12 : h + 12) * 60) + m;
+    nights[nightIdx].push({ start: sinceNoon, end: sinceNoon + dur });
+  })));
+
+  const perNight = nights.map((list) => {
+    if (!list.length) return null;
+    if (dur <= 0) return { sessions: list.length, minutes: 0, photos: null };
+    /* Sessions that run into each other are one stretch of being awake,
+       not two, so merge them before counting hours and photos. */
+    const merged = mergeRuns(list);
+    const minutes = merged.reduce((a, b) => a + (b.end - b.start), 0);
+    const photos = (!isNaN(interval) && interval > 0)
+      ? merged.reduce((a, b) => a + Math.floor((b.end - b.start) / interval) + 1, 0)
+      : null;
+    return { sessions: list.length, minutes, photos };
+  }).filter(Boolean);
+
+  const sessionsPerWeek = perNight.reduce((a, n) => a + n.sessions, 0);
   const shotsPerSession = (dur > 0 && !isNaN(interval) && interval > 0) ? Math.floor(dur / interval) + 1 : null;
-  const awakePerWeek = sessionsPerWeek * dur;
+  const countedPhotos = perNight.length > 0 && perNight.every((n) => n.photos !== null);
+  const photosPerWeek = countedPhotos ? perNight.reduce((a, n) => a + n.photos, 0) : null;
+
+  /* Nights are not always alike -- picking only Monday puts that Monday
+     morning's sessions on Sunday's night -- so show a range when they differ. */
+  const span = (pick, fmt) => {
+    if (!perNight.length) return "—";
+    const vals = perNight.map(pick);
+    const lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+    return lo === hi ? fmt(lo) : fmt(lo) + "–" + fmt(hi);
+  };
 
   const stats = [
-    [sessionsPerWeek, "sessions / week"],
-    [perDay ? perDay : 0, "sessions / active night"],
-    [dur ? dur + " min" : "—", "each session"],
+    [dur > 0 ? span((n) => n.minutes, (m) => (m / 60).toFixed(1)) + " h" : "—", "hours run / night"],
+    [countedPhotos ? span((n) => n.photos, (v) => v.toLocaleString()) : "—", "photos / night"],
+    [span((n) => n.sessions, String), "sessions / night"],
     [shotsPerSession !== null ? shotsPerSession : "—", "photos / session"],
-    [shotsPerSession !== null ? (shotsPerSession * sessionsPerWeek).toLocaleString() : "—", "photos / week"],
-    [(awakePerWeek / 60).toFixed(1) + " h", "awake / week"]
+    [perNight.length, "nights / week"],
+    [photosPerWeek !== null ? photosPerWeek.toLocaleString() : "—", "photos / week"]
   ];
   $("schedstats").innerHTML = stats.map(([v, l]) =>
     '<div class="stat"><strong>' + v + "</strong><span>" + l + "</span></div>").join("");
+  $("statnote").textContent = perNight.length
+    ? "A night runs noon to noon, the same way the Mothbox groups photos into folders, so an evening and the early hours after it count as one night."
+    : "";
 
   /* overlap and sanity warnings */
   const warns = [];
@@ -1269,6 +1305,17 @@ function drawSchedule(wd, hrs, mins, runtime, interval) {
     $("wakechips").innerHTML = "";
   }
   $("schedwarn").innerHTML = warns.map((w) => '<div class="msg warn">' + escapeHtml(w) + "</div>").join("");
+}
+/* Overlapping or back-to-back runs collapse into single awake stretches. */
+function mergeRuns(list) {
+  const sorted = list.slice().sort((a, b) => a.start - b.start);
+  const out = [];
+  sorted.forEach((r) => {
+    const last = out[out.length - 1];
+    if (last && r.start <= last.end) last.end = Math.max(last.end, r.end);
+    else out.push({ start: r.start, end: r.end });
+  });
+  return out;
 }
 function fmtMin(mins) {
   const h = Math.floor(mins / 60) % 24, m = mins % 60;
