@@ -8,6 +8,8 @@ import sys
 import atexit
 import re
 
+import glob
+
 # --- Configuration ---
 LOG_DIR = "/home/pi/Desktop/Mothbox/logs"
 DEFAULT_LOG_FILE = os.path.join(LOG_DIR, "Diagnostics.log")
@@ -108,12 +110,16 @@ def run_script(script_path, show_output=True):
 # --- Run diagnostic modules ---
 run_script("/home/pi/Desktop/Mothbox/scripts/3v3SensorsOn.py", show_output=False)
 time.sleep(0.5)
+buses = glob.glob('/dev/i2c-*')
+print(f"I2C buses: {buses if buses else 'NONE - is i2c_arm enabled?'}")
+
 run_script("/home/pi/Desktop/Mothbox/scripts/read_Vin.py", show_output=True)
 run_script("/home/pi/Desktop/Mothbox/scripts/read5V.py", show_output=True)
 run_script("/home/pi/Desktop/Mothbox/scripts/readCPUTemperature.py", show_output=True)
 time.sleep(2) # temp sensor needs a lot of time awake to run
 run_script("/home/pi/Desktop/Mothbox/scripts/BoardTemp_ds18b20.py", show_output=True) 
-run_script("/home/pi/Desktop/Mothbox/scripts/readLTR303.py", show_output=True)
+run_script("/home/pi/Desktop/Mothbox/scripts/readLightSensor.py", show_output=True)
 run_script("/home/pi/Desktop/Mothbox/scripts/3v3SensorsOff.py", show_output=False)
 
 print("--end diagnostics------------------------------------\n")
+
