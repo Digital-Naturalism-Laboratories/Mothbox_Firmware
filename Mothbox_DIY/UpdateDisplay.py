@@ -91,6 +91,33 @@ def read_control(path: Path, key: str, default=None):
     return default
 
 
+def sort_hours_night_order(hours_str):
+    """
+    Reorders a schedule hours string so it reads in the order the hours
+    happen over a night: noon (12) first, through midnight, ending at 11am.
+    Keeps whatever separator the control file used, and returns the string
+    unchanged if it can't be parsed as a list of hours.
+    """
+    if not hours_str:
+        return hours_str
+
+    sep = None
+    for candidate in (";", ",", " "):
+        if candidate in hours_str:
+            sep = candidate
+            break
+
+    parts = [p.strip() for p in hours_str.split(sep)] if sep else [hours_str.strip()]
+
+    try:
+        hrs = [int(p) for p in parts if p != ""]
+    except ValueError:
+        return hours_str
+
+    hrs.sort(key=lambda h: (h - 12) % 24)
+    return (sep if sep else ";").join(str(h) for h in hrs)
+
+
 # ---- Load Controls ----
 
 
@@ -191,6 +218,7 @@ except (ValueError, TypeError):
 
 # Schedule Stuff
 hours = read_control(CONTROL_ROOT / "hours.txt", "hours", "errorhours")
+hours = sort_hours_night_order(hours)
 
 #weekdays=control_values.get("weekdays", "error")
 weekdays = read_control(CONTROL_ROOT / "weekdays.txt", "weekdays", "errorweekdays")
@@ -424,7 +452,16 @@ try:
 
         
 except IOError as e:
-    logging.info(e)
+    # SPI/GPIO failures land here (spidev.open raises OSError/IOError when
+    # /dev/spidev0.0 is missing, e.g. SPI turned off in config.txt after an
+    # OS update). logging.info() is invisible at the default WARNING level,
+    # so print the real error and traceback instead of failing silently.
+    print(f"[UpdateDisplay] E-paper I/O error: {e}")
+    traceback.print_exc()
+
+except Exception as e:
+    print(f"[UpdateDisplay] Unexpected error while updating display: {e}")
+    traceback.print_exc()
     
 except KeyboardInterrupt:    
     logging.info("ctrl + c:")
