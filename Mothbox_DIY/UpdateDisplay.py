@@ -28,6 +28,23 @@ import shutil
 import psutil
 
 import logging
+
+# Pin gpiozero's backend BEFORE importing waveshare_epd (which imports gpiozero
+# and instantiates the pins at import time).
+#
+# A 2025 Raspberry Pi OS kernel update renumbered the gpiochip devices -- the
+# header GPIO now shows up as /dev/gpiochip11..15 instead of 0..4. gpiozero
+# 2.0.1's LGPIOFactory only probes the low numbers, so it fails with
+# "can not open gpiochip" and falls back down its factory chain. The rpigpio
+# factory (the rpi-lgpio shim) handles the new numbering fine and is what the
+# rest of the Mothbox scripts already use via `import RPi.GPIO`.
+#
+# Naming it explicitly does two things: silences the PinFactoryFallback warning,
+# and stops gpiozero from ever sliding further down the chain to the `native`
+# factory, which pokes /dev/mem directly and is not reliable on a Pi 5.
+# setdefault() so it can still be overridden from the environment when debugging.
+os.environ.setdefault("GPIOZERO_PIN_FACTORY", "rpigpio")
+
 from waveshare_epd import epd2in13_V4
 import time
 from PIL import Image,ImageDraw,ImageFont
