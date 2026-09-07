@@ -138,6 +138,11 @@ import shutil
 import io
 from PIL import Image
 import piexif
+try:
+    import mothbox_exif  # sits next to this script; builds the full EXIF block
+except Exception as _e:
+    print(f"[TakePhoto] mothbox_exif unavailable ({_e}); photos will be saved without EXIF")
+    mothbox_exif = None
 import subprocess
 
 
@@ -642,6 +647,15 @@ def takePhoto_Manual():
         picam2.stop()
         print("picture take time: "+str(flashtime))
         
+    # Gathered once per run for the EXIF: which sensor libcamera says this is,
+    # and the most recent diagnostics readings already logged. Nothing is
+    # measured here -- that would cost seconds per photo.
+    try:
+        camera_sensor_name = picam2.camera_properties.get("Model", "")
+    except Exception:
+        camera_sensor_name = ""
+    latest_diagnostics = mothbox_exif.read_latest_diagnostics() if mothbox_exif else {}
+
     # Saving loop (can be done later)
     i=0
     for img in PILs:  
@@ -669,34 +683,29 @@ def takePhoto_Manual():
               filepath = folderPath + computerName + "_" + timestamp + hdr_suffix + ".bmp"
 
         
-          #print(exif_data) #This is a LOT of data
-          print(camera_settings.get("LensPosition"))
-          #https://github.com/hMatoba/Piexif/blob/3422fbe7a12c3ebcc90532d8e1f4e3be32ece80c/piexif/_exif.py#L406
-          #https://piexif.readthedocs.io/en/latest/functions.html#dump
-          zeroth_ifd = {piexif.ImageIFD.Make: u"MothboxV5",
-              }
-          exif_ifd = {#piexif.ExifIFD.DateTimeOriginal: u"2099:09:29 10:10:10",
-            #piexif.ExifIFD.LensMake: u"LensMake",
-            piexif.ExifIFD.ExposureTime: (1,int(1/(abs(exposure_times[i])/1000000))),
-            piexif.ExifIFD.FocalLength: (int(calib_lens_position * 100), 10),
-            piexif.ExifIFD.ISOSpeed: int(calib_gain * 100),
-            piexif.ExifIFD.ISOSpeedRatings: int(calib_gain * 100),
-
-            }
-          gps_ifd = {
-           #piexif.GPSIFD.GPSVersionID: (2, 0, 0, 0),
-           #piexif.GPSIFD.GPSAltitudeRef: 1,
-           #piexif.GPSIFD.GPSDateStamp: u"1999:99:99 99:99:99",
-           }
-          first_ifd = {piexif.ImageIFD.Make: u"Arducam64mp",
-             #piexif.ImageIFD.XResolution: (40, 1),
-             #piexif.ImageIFD.YResolution: (40, 1),
-             piexif.ImageIFD.Software: u"piexif"
-             }
-          
-          exif_dict = {"0th":zeroth_ifd, "Exif":exif_ifd, "GPS":gps_ifd, "1st":first_ifd}
-          exif_bytes = piexif.dump(exif_dict)
-          img.save(filepath,exif=exif_bytes, quality=96)
+          # --- EXIF: built by mothbox_exif.py from the REAL capture metadata ---
+          # (actual exposure / gain / lens position, camera module facts, GPS,
+          # and the latest diagnostics readings already on disk). Any failure
+          # in there just saves the photo without EXIF -- never loses it.
+          save_kwargs = {"quality": 96}
+          if mothbox_exif is not None:
+              exif_bytes = mothbox_exif.build_exif_bytes(
+                  metadata=exif_data,
+                  requested_exposure_us=exposure_times[i],
+                  image_size=img.size,
+                  capture_time=now,
+                  utc_offset_hours=utc_offset_hours,
+                  computer_name=computerName,
+                  software_version=softwareversion,
+                  sensor_name=camera_sensor_name,
+                  lat=gps_lat, lon=gps_lon,
+                  diagnostics=latest_diagnostics,
+                  hdr_index=i, hdr_count=num_photos,
+                  image_id=computerName + "_" + timestamp + hdr_suffix,
+              )
+              if exif_bytes:
+                  save_kwargs["exif"] = exif_bytes
+          img.save(filepath, **save_kwargs)
           print("Image saved to "+filepath)
           i=i+1
 
@@ -816,6 +825,10 @@ LastCalibration= float(read_control(CONTROL_ROOT / "lastcalibration.txt", "lastc
 
 #computerName = control_values.get("name", "wrong")
 computerName = read_control(CONTROL_ROOT / "name.txt", "name", "errorname")
+softwareversion = read_control(CONTROL_ROOT / "softwareversion.txt", "softwareversion", "5")
+# GPS fix written by GPS.py at boot; "n/a" (or missing) simply means no GPS tags.
+gps_lat = read_control(CONTROL_ROOT / "lat.txt", "lat", None)
+gps_lon = read_control(CONTROL_ROOT / "lon.txt", "lon", None)
 
 # Read UTC offset (stored as a float like 2.0 or -5.5 cuz fun timezones like kathmandu)
 utc_offset_hours = float(read_control(CONTROL_ROOT / "utc.txt", "utc", 0))
