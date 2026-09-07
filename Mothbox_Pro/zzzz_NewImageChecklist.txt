@@ -21,3 +21,5 @@
 6) empty trash
 7) copy scripts to USB to send to github
 8) Check default schedule
+9) Check /boot/firmware/config.txt against mothbox_custom_Pro/reference_boot_config.txt
+	(camera overlay, rtc_bbat_vchg, w1-gpio, i2c, spi + no_miso, USB current must all be present)
