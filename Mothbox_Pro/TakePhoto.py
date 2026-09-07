@@ -423,7 +423,7 @@ def run_calibration():
     
     exposurevalue=camera_settings["ExposureValue"]
     picam2.set_controls({"ExposureValue":exposurevalue})# Floating point number between -8.0 and 8.0
-    picam2.set_controls({"ExposureTime":500}) #we want a fast photo so we don't get blurry insects. We lock the exposure time and adjust gain. The max speed seems to be 469, but we will leave some overhead
+    picam2.set_controls({"ExposureTime":500}) #we want a fast photo so we don't get blurry insects. We lock the exposure time and adjust gain. Values below the sensor's floor are clamped by libcamera (OwlSight full-res: 1119us at link-frequency 360MHz, 868us at 456MHz); the real value lands in the EXIF
 
 
     time.sleep(1)
@@ -702,6 +702,7 @@ def takePhoto_Manual():
                   diagnostics=latest_diagnostics,
                   hdr_index=i, hdr_count=num_photos,
                   image_id=computerName + "_" + timestamp + hdr_suffix,
+                  body_model="Mothbox Pro",
               )
               if exif_bytes:
                   save_kwargs["exif"] = exif_bytes
@@ -805,7 +806,7 @@ else:
 #HDR Controls
 num_photos = 1
 exposuretime_width = 18000
-middleexposure=500 # 500 #minimum exposure time for Hawkeye camera 64mp arducam
+middleexposure=500 # requested exposure (us). Below the OwlSight's floor, so it is clamped to the minimum the sensor mode allows
 
 
 #global onlyflash

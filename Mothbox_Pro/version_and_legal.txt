@@ -1,4 +1,4 @@
-Mothbox v5.0.4
+Mothbox v5.3.2
 
 Open Source Moth Monitoring Project
 All items are open source and freely available to use and share. 

@@ -54,8 +54,11 @@ _PATTERNS = {
     "board_temp_c": (re.compile(r"^Temperature: ([-\d.]+)\s*°?C", re.M),   float),
     "lux":          (re.compile(r"^Lux: ([-\d.eE+]+)", re.M),               float),
     "light_sensor": (re.compile(r"^Using sensor: (.+?)\s*$", re.M),         str),
-    "vin_v":        (re.compile(r"^Vin Voltage: ([-\d.]+) V", re.M),        float),
-    "current_a":    (re.compile(r"Current: ([-\d.]+) A", re.M),             float),
+    # Pro read_Vin.py:        "Vin Voltage: 12.401 V, Current: 0.312 A"
+    # DIY mbDIYINA_voltage.py: "Current: 312.00 mA  Voltage: 12.40 V  Power: 3869.00 mW"
+    "vin_v":        (re.compile(r"Voltage: ([-\d.]+) V\b", re.M),           float),
+    "current_a":    (re.compile(r"Current: ([-\d.]+) A\b", re.M),           float),
+    "current_ma":   (re.compile(r"Current: ([-\d.]+) mA\b", re.M),          float),
     "pi_5v":        (re.compile(r"^5v to pi: ([-\d.]+)", re.M),             float),
 }
 
@@ -79,6 +82,9 @@ def _parse_last_run(text):
             out[key] = cast(m.group(1))
         except ValueError:
             pass
+    if "current_ma" in out:
+        out.setdefault("current_a", round(out["current_ma"] / 1000.0, 4))
+        del out["current_ma"]
     return when, out
 
 
@@ -169,7 +175,7 @@ def _r(v, nd=4):
 def build_exif_dict(*, metadata, requested_exposure_us, image_size, capture_time,
                     utc_offset_hours, computer_name, software_version, sensor_name,
                     lat=None, lon=None, diagnostics=None, hdr_index=0, hdr_count=1,
-                    image_id=None, flash_fired=True):
+                    image_id=None, flash_fired=True, body_model=None):
     """
     Assemble the piexif dict. Pure function of its inputs (plus the Pi serial),
     so it can be unit-tested off the Pi. See build_exif_bytes() for the
@@ -179,7 +185,10 @@ def build_exif_dict(*, metadata, requested_exposure_us, image_size, capture_time
     diagnostics = diagnostics or {}
     cam = CAMERA_MODULES.get(str(sensor_name).lower(), {})
     sw = str(software_version)
-    body = "Mothbox DIY" if sw.startswith("4") else "Mothbox Pro"
+    # The caller says which body this is (TakePhoto.py in the Pro and DIY
+    # folders differ on exactly this). Both run Pi 5 + OwlSight and report
+    # 5.x firmware, so it cannot be inferred from anything else.
+    body = str(body_model) if body_model else "Mothbox"
     local_ts = capture_time.strftime("%Y:%m:%d %H:%M:%S")
     offset = _offset_str(utc_offset_hours)
     w, h = image_size
