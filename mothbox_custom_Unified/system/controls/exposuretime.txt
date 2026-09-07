@@ -1,1 +1,0 @@
-exposuretime=499

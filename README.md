@@ -11,6 +11,8 @@ This is where the firmware (software running on the device) is developed for the
 
 Deploy `Mothbox_Unified/*` to `/home/pi/Desktop/Mothbox/` and `mothbox_custom_Unified/*` to `/boot/firmware/mothbox_custom/`.
 
+`mothbox_custom_Unified/system/controls/` deliberately contains only `softwareversion.txt`, `safetygb.txt`, `onlyflash.txt` and `defaults/`. Every other control file (name, mode, schedule, nextwake, switches, hardware, GPS, calibration, timestamps) is per-box state that the box regenerates at boot, so copying the folder over a live box is safe. Never commit those generated files; a committed `name.txt` once renamed a box to `strongAbanto` until its next reboot.
+
 ## How the unified firmware tells a Pro from a DIY
 
 Both builds are a Pi 5 with the Arducam 64MP OwlSight. Everything else on the GPIO differs, so `mothbox_hw.py` (the hardware abstraction layer) decides once per boot:
