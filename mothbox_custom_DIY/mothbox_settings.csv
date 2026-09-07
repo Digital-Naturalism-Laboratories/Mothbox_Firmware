@@ -13,3 +13,4 @@ bat_80perVolts,12.0, this is the voltage of the battery when its about 80 percen
 bat_20perVolts,11.0, this is the voltage of the battery when it is about 20 percent full
 wifissid, examplessid, write an SSID of a wifi you want to add to the pi 
 wifipass, examplepass, write the wifi password (not currently implemented)
+backup_interval,5, time in minutes between backups of new photos to the USB drive. Default is 5 (valid 1-999). A final backup always runs at the end of every session regardless

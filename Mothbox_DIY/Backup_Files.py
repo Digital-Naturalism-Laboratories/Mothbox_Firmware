@@ -28,7 +28,16 @@ import sys
 #######---- Check for Boot lock ------
 BOOT_LOCK = "/run/boot_script_running"
 
-if os.path.exists(BOOT_LOCK):
+# --final : the end-of-session backup that Scheduler.py runs deliberately from
+# run_shutdown_pi5(), AFTER it has re-armed the boot lock (so no cron-launched
+# TakePhoto.py / Backup_Files.py can interfere) and after photo capture has
+# stopped. It bypasses both the boot lock and the interval throttle below so
+# the last few minutes of photos get copied before power-off. Never pass this
+# from cron -- it is only meaningful when the Scheduler is orchestrating the
+# shutdown sequence.
+FINAL_BACKUP = "--final" in sys.argv[1:]
+
+if os.path.exists(BOOT_LOCK) and not FINAL_BACKUP:
     sys.exit(0)
 
 #-----------------------------##
@@ -37,6 +46,7 @@ import os
 import subprocess
 import shutil
 import psutil
+import csv
 from pathlib import Path
 from datetime import datetime
 import sys
@@ -50,18 +60,45 @@ CONTROL_ROOT = Path("/boot/firmware/mothbox_custom/system/controls")
 LAST_BACKUP_FILE = CONTROL_ROOT / "last_backup_time.txt"
 
 
+SETTINGS_CSV = Path("/boot/firmware/mothbox_custom/mothbox_settings.csv")
+BACKUP_INTERVAL_DEFAULT = 5
+BACKUP_INTERVAL_MIN, BACKUP_INTERVAL_MAX = 1, 999
+
+
 def get_backup_interval():
-    path = CONTROL_ROOT / "backup_interval.txt"
-    if not path.exists():
-        return 5
+    """
+    Minutes between backups, read straight from mothbox_settings.csv
+    (row: backup_interval,<minutes>,...). Same file the settings editor writes.
+
+    Default 5. Valid range 1-999; anything missing, non-numeric, or out of
+    range falls back to the default so a typo can never stall backups.
+    """
+    if not SETTINGS_CSV.exists():
+        return BACKUP_INTERVAL_DEFAULT
     try:
-        with open(path) as f:
-            for line in f:
-                if line.startswith("backup_interval="):
-                    return int(line.split("=", 1)[1].strip())
-    except (ValueError, IOError):
-        pass
-    return 5
+        # utf-8-sig eats the BOM Excel likes to prepend; latin-1 never fails.
+        for enc in ("utf-8-sig", "latin-1"):
+            try:
+                with open(SETTINGS_CSV, newline="", encoding=enc) as f:
+                    reader = csv.DictReader(f)
+                    if reader.fieldnames:
+                        reader.fieldnames = [h.strip().lstrip("\ufeff").upper() for h in reader.fieldnames]
+                    if not reader.fieldnames or "SETTING" not in reader.fieldnames or "VALUE" not in reader.fieldnames:
+                        return BACKUP_INTERVAL_DEFAULT
+                    for row in reader:
+                        key = (row.get("SETTING") or "").strip().lstrip("\ufeff")
+                        if key == "backup_interval":
+                            val = int((row.get("VALUE") or "").strip())
+                            if BACKUP_INTERVAL_MIN <= val <= BACKUP_INTERVAL_MAX:
+                                return val
+                            print(f"Warning: backup_interval={val} outside {BACKUP_INTERVAL_MIN}-{BACKUP_INTERVAL_MAX}, using {BACKUP_INTERVAL_DEFAULT}")
+                            return BACKUP_INTERVAL_DEFAULT
+                break  # file read fine, key just wasn't there
+            except UnicodeDecodeError:
+                continue
+    except (ValueError, IOError, OSError) as e:
+        print(f"Warning: could not read backup_interval from settings ({e}), using {BACKUP_INTERVAL_DEFAULT}")
+    return BACKUP_INTERVAL_DEFAULT
 
 
 def is_backup_due():
@@ -134,7 +171,9 @@ backedup_photos_folder = desktop_path / "photos_backedup"
 
 backup_folder_name = "photos_backup_"+computerName
 
-if not is_backup_due():
+if FINAL_BACKUP:
+    print("Final end-of-session backup requested -- skipping interval throttle.")
+elif not is_backup_due():
     print(f"Backup not due yet (interval={get_backup_interval()} min). Skipping.")
     sys.exit(0)
 
@@ -680,6 +719,8 @@ if __name__ == "__main__":
 
     if thingsworkedok == False:
         print("stuff never worked out with this backup, your files are not properly backedup")
+        # Non-zero so the Scheduler's final-backup step can log an honest result.
+        sys.exit(2)
     else:
         record_backup_done()
         print("stuff worked out BACKUP COMPLETE")

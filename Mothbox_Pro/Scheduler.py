@@ -371,6 +371,7 @@ def find_file(path, filename, depth=1):
 SETTING_DEFAULTS = {
     "runtime":      0,
     "photo_interval": 1, 
+    "backup_interval": 5,
     "utc_off":      0,
     "ssid":         None,
     "wifipass":     None,
@@ -511,6 +512,14 @@ def load_settings(filename):
                     result["bat_20perVolts"] = float(value)
                 elif setting == "photo_interval":
                     result["photo_interval"] = int(value)
+                elif setting == "backup_interval":
+                    # Consumed by Backup_Files.py directly from the CSV; parsed
+                    # here only so it is recognised (no "Unknown setting" nag)
+                    # and validated in the boot log. Valid 1-999, default 5.
+                    bi = int(value)
+                    if not 1 <= bi <= 999:
+                        print(f"WARNING: backup_interval={bi} outside 1-999, Backup_Files will use 5")
+                    result["backup_interval"] = bi
                 else:
                     print(f"Warning: Unknown setting: {setting}. Ignoring.")
             except (ValueError, TypeError):
@@ -678,6 +687,118 @@ def should_abort_shutdown(cron_source, runtime_minutes, grace_minutes=1):
     return None
 
 
+# ---------------------------------------------------------------------------
+# End-of-session final backup
+# ---------------------------------------------------------------------------
+FINAL_BACKUP_TIMEOUT_S    = 15 * 60  # hard cap: a wedged USB drive must not keep the box awake all night
+TAKEPHOTO_DRAIN_TIMEOUT_S = 120      # longest we wait for an in-flight capture to finish
+
+
+def wait_for_takephoto_to_finish(timeout_s=TAKEPHOTO_DRAIN_TIMEOUT_S):
+    """
+    The boot lock stops cron from launching any NEW TakePhoto.py, but one may
+    already be mid-capture when shutdown fires (HDR stacks take a while).
+    Backing up at that moment would copy a truncated JPEG to the USB drive and
+    then move the original out of photos/. Poll until it exits.
+
+    Returns True if no TakePhoto.py is running, False if we gave up waiting.
+    """
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        # pgrep exit status: 0 = at least one match, 1 = none. pgrep never
+        # matches itself.
+        rc = subprocess.run(
+            ["pgrep", "-f", "Mothbox/TakePhoto.py"],
+            capture_output=True,
+        ).returncode
+        if rc != 0:
+            return True
+        time.sleep(2)
+    return False
+
+
+def final_backup_before_shutdown():
+    """
+    End-of-session safety net so the box powers down fully backed up.
+
+    Why this exists: Backup_Files.py runs from cron but throttles itself to
+    once per backup_interval minutes (default 5). run_shutdown_pi5() re-arms
+    the boot lock as its very first action, which makes every later
+    cron-launched Backup_Files.py exit immediately -- so any photo taken after
+    the last throttled backup used to sit in photos/ until the NEXT session.
+
+    Ordering:
+      1. wait for an in-flight TakePhoto.py to finish  (partial-JPEG hazard)
+      2. attract lights off                            (don't burn 12V while copying)
+      3. Backup_Files.py --final                       (bypasses boot lock + throttle)
+
+    Bounded by FINAL_BACKUP_TIMEOUT_S. The wake alarm has already been set by
+    the time this runs, so the worst case is powering off with a partial copy
+    on the USB drive -- which the next backup simply overwrites (copy2 with
+    dirs_exist_ok), and the originals stay in photos/ because the move to
+    photos_backedup/ only happens after a completed copy. Never raises.
+    """
+    log_section("SHUTDOWN -- Final Backup")
+
+    # 1. Let an in-flight capture finish. Its flash/attract cycle needs the
+    #    lights, so they stay on for (at most) TAKEPHOTO_DRAIN_TIMEOUT_S here.
+    try:
+        if wait_for_takephoto_to_finish():
+            log_ok("No TakePhoto.py running -- photo capture has stopped.")
+        else:
+            log_warn(f"TakePhoto.py still running after {TAKEPHOTO_DRAIN_TIMEOUT_S}s "
+                     f"-- proceeding with backup anyway.")
+    except Exception as e:
+        log_warn(f"Could not check for a running TakePhoto.py ({e}) -- continuing.")
+
+    # 2. Lights OFF, unconditionally, before any copying starts. The attract
+    #    lights are the main power drain, and a backup can take minutes. This
+    #    is deliberately outside the backup try-block so nothing can skip it,
+    #    and it retries once because a copy with the lights on is the one
+    #    outcome we never want.
+    lights_off = False
+    for attempt in (1, 2):
+        try:
+            rc = subprocess.run(["python", "/home/pi/Desktop/Mothbox/Attract_Off.py"],
+                                check=False, timeout=30).returncode
+            if rc == 0:
+                lights_off = True
+                break
+            log_warn(f"Attract_Off.py exited {rc} (attempt {attempt}/2).")
+        except Exception as e:
+            log_warn(f"Attract_Off.py failed (attempt {attempt}/2): {e}")
+        time.sleep(1)
+    if lights_off:
+        log_ok("Attract lights off.")
+    else:
+        log_warn("Could not confirm attract lights are off -- backing up anyway; "
+                 "power-off will cut them shortly.")
+
+    # 3. The backup itself.
+    try:
+        log_info("Running final backup (bypassing interval throttle)...")
+        t0 = time.time()
+        result = subprocess.run(
+            ["python3", "/home/pi/Desktop/Mothbox/Backup_Files.py", "--final"],
+            capture_output=True, text=True, timeout=FINAL_BACKUP_TIMEOUT_S,
+        )
+        out = result.stdout.strip()
+        if out:
+            print(out)
+        elapsed = time.time() - t0
+        if result.returncode == 0:
+            log_ok(f"Final backup complete in {elapsed:.0f}s.")
+        else:
+            detail = result.stderr.strip() or "see output above"
+            log_warn(f"Final backup exited {result.returncode} after {elapsed:.0f}s -- {detail}. "
+                     f"Unbacked photos stay in photos/ for the next session.")
+    except subprocess.TimeoutExpired:
+        log_warn(f"Final backup exceeded {FINAL_BACKUP_TIMEOUT_S}s and was killed. "
+                 f"Unbacked photos stay in photos/; shutting down to protect the battery.")
+    except Exception as e:
+        log_warn(f"Final backup step failed: {e} -- continuing shutdown.")
+
+
 def run_shutdown_pi5():
     """
     Shut down the raspberry pi
@@ -753,6 +874,10 @@ def run_shutdown_pi5():
     clear_wakeup_alarm()
     set_wakeup_alarm(next_epoch_time)
     log_ok(f"Next wakeup scheduled for: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(next_epoch_time))}")
+
+    # Photo capture is locked out (boot lock above) and the wake alarm is safely
+    # set -- now flush whatever the throttled cron backup didn't get to.
+    final_backup_before_shutdown()
 
     ''' # Cutting out GPS check at shutdown, feels not really needed
     # GPS check / 10 second delay
@@ -1619,6 +1744,8 @@ else:
 photo_interval = int(settings.get("photo_interval", 1))
 atomic_update_kv(os.path.join(CONTROL_ROOT, "photo_interval.txt"), "photo_interval", photo_interval)
 settings.pop("photo_interval", None)  # don't let it pollute cron builder
+log_info(f"Backup interval: {settings.get('backup_interval', 5)} min (read live by Backup_Files.py)")
+settings.pop("backup_interval", None)
 
 set_timings(minute, hour, weekday, runtime)
 settings.pop("runtime", None)  # safe delete, no KeyError

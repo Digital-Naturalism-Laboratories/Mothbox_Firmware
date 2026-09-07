@@ -368,6 +368,13 @@
         <div class="fielderr" id="e-photo_interval"></div>
       </div>
 
+      <div class="field" id="wrap-backup_interval">
+        <label class="lbl" for="f-backup_interval">Minutes between backups</label>
+        <input type="number" id="f-backup_interval" data-key="backup_interval" min="1" max="999" step="1">
+        <p class="hint">How often new photos are copied to the USB drive during a session. A final backup always runs at the end of every session, so a longer gap just saves a little power.</p>
+        <div class="fielderr" id="e-backup_interval"></div>
+      </div>
+
       </div>
       <div class="outcome">
 
@@ -644,7 +651,8 @@ const DEFAULTS = [
   ["bat_20perVolts", "10.5", " this is the voltage of the battery when it is about 20 percent full"],
   ["wifissid", "examplessid", " write an SSID of a wifi you want to add to the pi "],
   ["wifipass", "examplepass", " write the wifi password (not currently implemented)"],
-  ["photo_interval", "1", " time in minutes between each photo. Default is 1 minute"]
+  ["photo_interval", "1", " time in minutes between each photo. Default is 1 minute"],
+  ["backup_interval", "5", " time in minutes between backups of new photos to the USB drive. Default is 5 (valid 1-999). A final backup always runs at the end of every session regardless"]
 ];
 
 /* Settings that get a purpose-built control above. Anything else in a
@@ -652,7 +660,7 @@ const DEFAULTS = [
 const HANDLED = new Set(["autoname", "name", "timezone", "autoSystemTime", "manualTime",
   "runtime", "weekday", "hour", "minute", "bat_voltage", "bat_Wh",
   "bat_80perVolts", "bat_20perVolts", "wifissid", "wifipass", "photo_interval",
-  "second"]);   /* 'second' is not used by the Mothbox -- kept in the file, not shown */
+  "backup_interval", "second"]);   /* 'second' is not used by the Mothbox -- kept in the file, not shown */
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -887,7 +895,7 @@ function buildStaticControls() {
   }));
 
   /* plain text / number fields */
-  ["name", "timezone", "manualTime", "runtime", "photo_interval",
+  ["name", "timezone", "manualTime", "runtime", "photo_interval", "backup_interval",
    "bat_voltage", "bat_Wh", "bat_80perVolts", "bat_20perVolts",
    "wifissid", "wifipass"].forEach((key) => {
     const el = $("f-" + key);
@@ -1002,6 +1010,7 @@ function doRefresh(skipEl) {
   setInput("f-manualTime", getVal("manualTime"), skipEl);
   setInput("f-runtime", getVal("runtime"), skipEl);
   setInput("f-photo_interval", getVal("photo_interval"), skipEl);
+  setInput("f-backup_interval", getVal("backup_interval"), skipEl);
   ["bat_voltage", "bat_Wh", "bat_80perVolts", "bat_20perVolts", "wifissid", "wifipass"]
     .forEach((k) => setInput("f-" + k, getVal(k), skipEl));
 
@@ -1106,6 +1115,15 @@ function doRefresh(skipEl) {
     if (getVal("photo_interval") === "" || isNaN(interval) || !Number.isInteger(interval)) return "Enter a whole number of minutes.";
     if (interval < 1) return "Must be at least 1 minute.";
     if (!isNaN(runtime) && interval > runtime) return "Longer than the session itself — you would only get the first photo.";
+    return "";
+  })(), errors);
+
+  const backupInterval = numOf(getVal("backup_interval"));
+  fieldErr("e-backup_interval", (() => {
+    if (!hasRow("backup_interval") && !touched.has("backup_interval")) return "";
+    if (getVal("backup_interval") === "" || isNaN(backupInterval) || !Number.isInteger(backupInterval)) return "Enter a whole number of minutes.";
+    if (backupInterval < 1) return "Must be at least 1 minute.";
+    if (backupInterval > 999) return "Must be 999 minutes or less.";
     return "";
   })(), errors);
 
