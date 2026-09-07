@@ -1,0 +1,20 @@
+SETTING,VALUE,DETAILS
+autoname, True, this automatically generates unique names for your mothbox
+name, customName, if 'autoname' is False the mothbox will use the name you supply here 
+timezone,America/Panama, this must be an official timezone from the list of linux timezones (supplied in the neighboring file)
+autoSystemTime,True, leave this as True and the mothbox will automatically set its own time
+manualTime,2026-02-22 15:26:11, if the autoSystemTime is False the mothbox will get set to whatever value you put here ONE time and then disable manual time setting (to prevent Groundhog Days) until you set AutosystemTime to False again 
+runtime, 59, put how long you want a photo session to go (in minutes). (make it not a full hour if you are doing things hourly) 
+weekday,1;2;3;4;5;6;7, add or remove days 1-7 for monday through sunday 
+hour,19;21;23;2;4,specify what hour you want things to turn on in 24 timeframe separate multi values with a semicolon
+minute,0, specify a specific minute that the schedule will start
+second, 1,not currently used by the mothbox
+bat_voltage,11.1, nominal voltage of the battery (voltage is says on the battery like 12v or 24 v)
+bat_Wh,142, this is the watt-hours of power the battery is rated for - for talentcell pb1202b it is 142 - if your battery only have amp-hours you can multiply Ah by the voltage to get watt hours  
+bat_80perVolts,12.0, this is the voltage of the battery when its about 80 percent full (This helps you calibrate the overal battery percent meter for different batteries)
+bat_20perVolts,10.5, this is the voltage of the battery when it is about 20 percent full
+wifissid, examplessid, write an SSID of a wifi you want to add to the pi 
+wifipass, examplepass, write the wifi password (not currently implemented)
+photo_interval,1, time in minutes between each photo. Default is 1 minute
+hardware,auto, auto detects a Mothbox Pro PCB or a DIY relay build at boot. Set to pro or diy to force it if detection ever guesses wrong
+backup_interval,5, time in minutes between backups of new photos to the USB drive. Default is 5 (valid 1-999). A final backup always runs at the end of every session regardless

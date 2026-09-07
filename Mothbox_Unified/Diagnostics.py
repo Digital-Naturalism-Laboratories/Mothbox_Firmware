@@ -1,0 +1,139 @@
+#!/usr/bin/python3
+
+import subprocess
+from datetime import datetime
+import time
+import os
+import sys
+import atexit
+import re
+
+import glob
+
+# --- Configuration ---
+LOG_DIR = "/home/pi/Desktop/Mothbox/logs"
+DEFAULT_LOG_FILE = os.path.join(LOG_DIR, "Diagnostics.log")
+MAX_LOG_SIZE_MB = 200
+TRIM_KEEP_MB = 10  # keep last 10 MB of logs
+
+# --- Setup logging directory ---
+os.makedirs(LOG_DIR, exist_ok=True)
+
+# --- Handle optional message argument ---
+custom_message = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else None
+
+def sanitize_label(label):
+    """Sanitize label for safe use in filenames."""
+    safe = re.sub(r'[^a-zA-Z0-9_-]+', '_', label.strip())
+    return safe or "Unnamed"
+
+if custom_message:
+    safe_label = sanitize_label(custom_message)
+    LOG_FILE = os.path.join(LOG_DIR, f"Diagnostics_{safe_label}.log")
+else:
+    LOG_FILE = DEFAULT_LOG_FILE
+
+def check_and_truncate_log():
+    """Trim the log file if it exceeds MAX_LOG_SIZE_MB."""
+    if os.path.exists(LOG_FILE):
+        size_mb = os.path.getsize(LOG_FILE) / (1024 * 1024)
+        if size_mb > MAX_LOG_SIZE_MB:
+            print(f"[LOG] {os.path.basename(LOG_FILE)} is {size_mb:.1f} MB — trimming...")
+            with open(LOG_FILE, "rb") as f:
+                f.seek(-TRIM_KEEP_MB * 1024 * 1024, os.SEEK_END)
+                data = f.read()
+            with open(LOG_FILE, "wb") as f:
+                f.write(b"--- LOG TRIMMED: older entries removed ---\n\n")
+                f.write(data)
+            print("[LOG] Old log data removed, kept last 10 MB.\n")
+
+check_and_truncate_log()
+
+# --- Setup Tee class for dual output ---
+class Tee:
+    def __init__(self, *streams):
+        self.streams = streams
+    def write(self, data):
+        for s in self.streams:
+            try:
+                s.write(data)
+                s.flush()
+            except Exception:
+                pass
+    def flush(self):
+        for s in self.streams:
+            try:
+                s.flush()
+            except Exception:
+                pass
+
+log_file = open(LOG_FILE, "a", buffering=1)  # line-buffered
+sys.stdout = Tee(sys.__stdout__, log_file)
+sys.stderr = Tee(sys.__stderr__, log_file)
+
+def close_log():
+    """Safely close the log file on exit."""
+    try:
+        log_file.close()
+    except Exception:
+        pass
+
+atexit.register(close_log)
+
+# --- Start diagnostics ---
+print("----------------- Mothbox Diagnostics!-------------------")
+now = datetime.now()
+formatted_time = now.strftime("%Y-%m-%d %H:%M:%S")
+print(f"Current time: {formatted_time}")
+
+if custom_message:
+    print(f"Run label: {custom_message}")
+
+print()
+
+def run_script(script_path, show_output=True):
+    """Run a Python script and optionally display its output."""
+    try:
+        result = subprocess.run(
+            ["python3", script_path],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        if show_output:
+            output = result.stdout.strip()
+            if output:
+                print(output)
+    except subprocess.CalledProcessError as e:
+        print(f" Error running {script_path}: {e.stderr.strip() if e.stderr else 'Unknown error'}")
+
+# --- Run diagnostic modules (hardware-aware) ---
+# Pro: sensors sit behind the 3.3 V rail; DIY has only the optional INA260.
+try:
+    import mothbox_hw
+    HW = mothbox_hw.get_hardware()
+    hw_info = mothbox_hw.hardware_info()
+except Exception as e:
+    print(f"mothbox_hw unavailable ({e}); assuming pro")
+    HW, hw_info = "pro", {}
+print(f"Hardware: {HW}  (detected by {hw_info.get('detected_by', '?')}; "
+      f"i2c {hw_info.get('i2c_found') or 'none'}; voltage sensor {hw_info.get('voltage_sensor', '?')})")
+
+if HW == "pro":
+    run_script("/home/pi/Desktop/Mothbox/scripts/3v3SensorsOn.py", show_output=False)
+    time.sleep(0.5)
+    buses = glob.glob('/dev/i2c-*')
+    print(f"I2C buses: {buses if buses else 'NONE - is i2c_arm enabled?'}")
+
+run_script("/home/pi/Desktop/Mothbox/scripts/read_power.py", show_output=True)
+run_script("/home/pi/Desktop/Mothbox/scripts/read5V.py", show_output=True)
+run_script("/home/pi/Desktop/Mothbox/scripts/readCPUTemperature.py", show_output=True)
+
+if HW == "pro":
+    time.sleep(2) # temp sensor needs a lot of time awake to run
+    run_script("/home/pi/Desktop/Mothbox/scripts/BoardTemp_ds18b20.py", show_output=True)
+    run_script("/home/pi/Desktop/Mothbox/scripts/readLightSensor.py", show_output=True)
+    run_script("/home/pi/Desktop/Mothbox/scripts/3v3SensorsOff.py", show_output=False)
+
+print("--end diagnostics------------------------------------\n")
+
