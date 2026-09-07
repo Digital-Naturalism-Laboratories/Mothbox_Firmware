@@ -19,8 +19,12 @@
 #   dtparam=i2c_arm=on                                voltage sensor, config switches, light sensor
 #   dtparam=spi=on  +  dtoverlay=spi0-1cs,no_miso      e-paper display; no_miso hands GPIO 9 (MISO)
 #                                                      back to attract relay Ch3
-#   dtoverlay=ov64a40,cam0,link-frequency=360000000    Arducam 64MP OWLSIGHT (OV64A40). This is NOT
-#                                                      the arducam-64mp / Hawkeye overlay
+#   dtoverlay=ov64a40,cam0,link-frequency=456000000    Arducam 64MP OWLSIGHT (OV64A40). This is NOT
+#                                                      the arducam-64mp / Hawkeye overlay.
+#                                                      456 MHz = Arducam 'high speed' mode: full-res
+#                                                      readout 2.60 fps vs 2.02 at 360 MHz, so ~30%
+#                                                      less rolling-shutter smear on moving insects.
+#                                                      Drop to 360000000 if photos show tearing.
 #   dtparam=rtc_bbat_vchg=3000000                      trickle-charges the RTC coin cell so wake
 #                                                      alarms survive a power loss
 #   dtoverlay=w1-gpio,gpiopin=4                        DS18B20 board temperature (Diagnostics.py)
@@ -79,7 +83,7 @@ arm_boost=1
 otg_mode=1
 
 [all]
-dtoverlay=ov64a40,cam0,link-frequency=360000000
+dtoverlay=ov64a40,cam0,link-frequency=456000000
 dtparam=rtc_bbat_vchg=3000000
 dtoverlay=disable-bt
 
