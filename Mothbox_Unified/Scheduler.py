@@ -1003,7 +1003,7 @@ def run_shutdown_pi5_FAST():
     #Stop big lights from turning on!
     offlight_script_path = "/home/pi/Desktop/Mothbox/Attract_Off.py"
     # Call the script using subprocess.run
-    subprocess.run([offlight_script_path])
+    run_mode_script(offlight_script_path)
     
     # SCHEDULE WAKEUP AGAIN FOR SECURITY
     settings = load_settings_for_wakeup()
@@ -1357,6 +1357,25 @@ def run_script(script_path, *args, show_output=True):
 
     except subprocess.CalledProcessError as e:
         print(f"[!] Error running {script_path}: {e.stderr.strip() if e.stderr else 'Unknown error'}")
+
+
+def run_mode_script(script_path):
+    """
+    Run one of the per-mode scripts (DebugMode.py, Party.py, Attract_Off.py).
+
+    Two deliberate choices:
+      * "python3 <script>", never bare "<script>". Running it bare needs the
+        executable bit, and an rsync from a machine where the file is not
+        marked executable silently strips it.
+      * never raises. This is called from the LAUNCH -- Final Mode block, which
+        sits just before the boot lock is released; an exception here used to
+        leave the lock in place, and every cron-launched TakePhoto / backup
+        then exited quietly, disabling the box with no obvious cause.
+    """
+    try:
+        subprocess.run(["python3", script_path], check=False)
+    except Exception as e:
+        log_warn(f"Could not run {script_path}: {e}")
 
 
 # Check if now is in schedule 
@@ -2017,19 +2036,16 @@ elif mode == "DEBUG":
     log_ok("Mode is DEBUG -- wifi on, cron off, staying alive.")
     # Define the path to your script (replace 'path/to/script' with the actual path)
     debug_script_path = "/home/pi/Desktop/Mothbox/DebugMode.py"
-    # Call the script using subprocess.run
-    subprocess.run([debug_script_path])
+    run_mode_script(debug_script_path)
     # stopcron()
 elif mode == "PARTY":
     log_ok("Mode is PARTY -- lights cycling, wifi on.")
     # Define the path to your script (replace 'path/to/script' with the actual path)
     debug_script_path = "/home/pi/Desktop/Mothbox/DebugMode.py"
-    # Call the script using subprocess.run
-    subprocess.run([debug_script_path])
-    
+    run_mode_script(debug_script_path)
+
     party_script_path = "/home/pi/Desktop/Mothbox/Party.py"
-    # Call the script using subprocess.run
-    subprocess.run([party_script_path])
+    run_mode_script(party_script_path)
     # stopcron()
 elif mode == "ACTIVE":
     log_ok("Mode is ACTIVE -- session running.")

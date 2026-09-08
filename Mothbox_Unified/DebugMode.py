@@ -56,7 +56,7 @@ print("----------------- KEEP INTERNET ON-------------------")
 script_path = "/home/pi/Desktop/Mothbox/scripts/MothPower/stop_lowpower.sh"
 
 # Call the script using subprocess.run
-subprocess.run([script_path])
+subprocess.run(["bash", script_path])  # explicit interpreter: never depend on the +x bit
 
 print("WIFI Script execution completed!")
 

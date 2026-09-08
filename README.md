@@ -13,6 +13,35 @@ Deploy `Mothbox_Unified/*` to `/home/pi/Desktop/Mothbox/` and `mothbox_custom_Un
 
 `mothbox_custom_Unified/system/controls/` deliberately contains only `softwareversion.txt`, `safetygb.txt`, `onlyflash.txt` and `defaults/`. Every other control file (name, mode, schedule, nextwake, switches, hardware, GPS, calibration, timestamps) is per-box state that the box regenerates at boot, so copying the folder over a live box is safe. Never commit those generated files; a committed `name.txt` once renamed a box to `strongAbanto` until its next reboot.
 
+## Deploying to a box
+
+Run both from the **Mac**, not from an SSH session on the Pi:
+
+```bash
+# firmware -> ext4 root partition (-a is correct here)
+rsync -av --exclude '__pycache__' \
+  ~/Documents/GitHub/Mothbox_Firmware/Mothbox_Unified/ \
+  pi@mothbox.local:/home/pi/Desktop/Mothbox/
+
+# settings -> FAT boot partition. FAT has no Unix ownership, so -a's chown
+# always fails there with "Operation not permitted" and exit 23 even though the
+# files transfer fine; --no-perms/owner/group keeps the run clean.
+rsync -rltv --no-perms --no-owner --no-group --rsync-path="sudo rsync" \
+  ~/Documents/GitHub/Mothbox_Firmware/mothbox_custom_Unified/ \
+  pi@mothbox.local:/boot/firmware/mothbox_custom/
+```
+
+Neither uses `--delete`: the first path also holds `photos/` and `logs/`, the second holds each box's own control files.
+
+Then on the Pi, check the box and install the reference `config.txt`:
+
+```bash
+bash /home/pi/Desktop/Mothbox/scripts/setup_new_image.sh          # report only
+bash /home/pi/Desktop/Mothbox/scripts/setup_new_image.sh --apply  # also fix config.txt, then reboot
+```
+
+It verifies config.txt, the bootloader EEPROM keys that RTC wake depends on, i2c/spi/1-Wire/camera, Pillow's FreeType support and the Python modules, that every firmware file arrived, and which board the firmware detected. It exits non-zero if anything fails, so it can be run across a fleet.
+
 ## How the unified firmware tells a Pro from a DIY
 
 Both builds are a Pi 5 with the Arducam 64MP OwlSight. Everything else on the GPIO differs, so `mothbox_hw.py` (the hardware abstraction layer) decides once per boot:
