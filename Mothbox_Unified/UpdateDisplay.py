@@ -63,6 +63,34 @@ import time
 from PIL import Image,ImageDraw,ImageFont
 import traceback
 
+# ---------------------------------------------------------------------------
+# Font loading that cannot leave a blank screen
+# ---------------------------------------------------------------------------
+# load_font() needs Pillow's _imagingft C extension. If that is
+# missing (Sept 2026: an apt full-upgrade left python3-pil without it) every
+# font call raises AFTER the panel has already been cleared to white, so the
+# box shows a blank display and says nothing about why. Falling back to
+# Pillow's built-in bitmap font keeps the layout ugly but READABLE, which is
+# what matters when the only thing you have in the field is the screen.
+_FONT_FALLBACK_WARNED = False
+
+def load_font(path, size):
+    global _FONT_FALLBACK_WARNED
+    try:
+        return ImageFont.truetype(path, size)
+    except Exception as e:
+        if not _FONT_FALLBACK_WARNED:
+            print(f"[UpdateDisplay] Cannot load TrueType fonts ({e}). "
+                  f"Falling back to the built-in bitmap font -- the display will "
+                  f"look wrong but still be readable. Fix with: "
+                  f"sudo apt install --reinstall python3-pil libfreetype6")
+            _FONT_FALLBACK_WARNED = True
+        try:
+            return ImageFont.load_default(size=size)   # Pillow >= 10.1 can scale it
+        except Exception:
+            return ImageFont.load_default()
+
+
 # --- First-boot filesystem-expansion check (see firstboot_guard.py) ---
 # Lives alongside scheduler.py at /home/pi/Desktop/Mothbox/. Import failures
 # are handled gracefully -- this display script should never crash just
@@ -215,11 +243,9 @@ if filesystem_needs_expansion is not None:
             draw = ImageDraw.Draw(image)
             draw.fontmode = "1"
 
-            font_wait_big = ImageFont.truetype(
-                '/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson_Next/AtkinsonHyperlegibleNext-Bold.otf', 16
+            font_wait_big = load_font('/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson_Next/AtkinsonHyperlegibleNext-Bold.otf', 16
             )
-            font_wait_small = ImageFont.truetype(
-                '/home/pi/Desktop/Mothbox/graphics/fonts/clear-sans/TTF/ClearSans-Medium.ttf', 12
+            font_wait_small = load_font('/home/pi/Desktop/Mothbox/graphics/fonts/clear-sans/TTF/ClearSans-Medium.ttf', 12
             )
 
             lines_big = [
@@ -392,25 +418,25 @@ try:
     epd.Clear(0xFF)
 
     # Drawing on the image
-    #fontHeaders = ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/scientifica/ttf/scientificaBold.ttf', 13)
-    fontHeaders = ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson_Next/AtkinsonHyperlegibleNext-Regular.otf', 13)
-    #fontHeaders = ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson/Atkinson-Hyperlegible-Regular-102.ttf', 12)
-    fontHeadersSmall = ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson_Next/AtkinsonHyperlegibleNext-Bold.otf', 9)
+    #fontHeaders = load_font('/home/pi/Desktop/Mothbox/graphics/fonts/scientifica/ttf/scientificaBold.ttf', 13)
+    fontHeaders = load_font('/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson_Next/AtkinsonHyperlegibleNext-Regular.otf', 13)
+    #fontHeaders = load_font('/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson/Atkinson-Hyperlegible-Regular-102.ttf', 12)
+    fontHeadersSmall = load_font('/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson_Next/AtkinsonHyperlegibleNext-Bold.otf', 9)
 
     
-    font8 = ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/clear-sans/TTF/ClearSans-Medium.ttf', 8)
+    font8 = load_font('/home/pi/Desktop/Mothbox/graphics/fonts/clear-sans/TTF/ClearSans-Medium.ttf', 8)
 
-    font_bigs=ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/clear-sans/TTF/ClearSans-Bold.ttf',8)
+    font_bigs=load_font('/home/pi/Desktop/Mothbox/graphics/fonts/clear-sans/TTF/ClearSans-Bold.ttf',8)
     
-    font_robotosemicon10=ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/scientifica/ttf/scientificaBold.ttf',13)
-    font_scientifica22=ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/scientifica/ttf/scientificaBold.ttf',22)
+    font_robotosemicon10=load_font('/home/pi/Desktop/Mothbox/graphics/fonts/scientifica/ttf/scientificaBold.ttf',13)
+    font_scientifica22=load_font('/home/pi/Desktop/Mothbox/graphics/fonts/scientifica/ttf/scientificaBold.ttf',22)
     
-    font_Atkinson19 = ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson_Next/AtkinsonHyperlegibleNext-Bold.otf', 19)
+    font_Atkinson19 = load_font('/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson_Next/AtkinsonHyperlegibleNext-Bold.otf', 19)
 
-    font_Mediumtext=ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/clear-sans/TTF/ClearSans-Medium.ttf',14)
-    font_Mediumtext12=ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/clear-sans/TTF/ClearSans-Regular.ttf',12)
+    font_Mediumtext=load_font('/home/pi/Desktop/Mothbox/graphics/fonts/clear-sans/TTF/ClearSans-Medium.ttf',14)
+    font_Mediumtext12=load_font('/home/pi/Desktop/Mothbox/graphics/fonts/clear-sans/TTF/ClearSans-Regular.ttf',12)
 
-    font_roboto10=ImageFont.truetype('/home/pi/Desktop/Mothbox/graphics/fonts/scientifica/ttf/scientificaBold.ttf',12)
+    font_roboto10=load_font('/home/pi/Desktop/Mothbox/graphics/fonts/scientifica/ttf/scientificaBold.ttf',12)
 
     logging.info("E-paper refresh")
     epd.init()
