@@ -180,6 +180,13 @@ def restart_script():
     Terminates the current script and restarts it.
     """
     print("Restarting script...")
+    # A pending SIGALRM survives exec() but its handler does not: cancel the
+    # photo watchdog so it cannot kill the fresh process before it re-arms.
+    try:
+        import signal as _sig
+        _sig.alarm(0)
+    except Exception:
+        pass
     time.sleep(1)  # Optional: Add a small delay for clarity
     python_executable = sys.executable
     script_path = sys.argv[0]
@@ -223,15 +230,46 @@ def run_cmd(cmd):
     """Run a shell command safely"""
     subprocess.run(cmd, shell=True, check=False)
 
+# The flash LEDs overheat if left on for more than about a minute. A dead
+# camera can make capture_request() block forever with the flash lit, so every
+# flashOn() also arms an INDEPENDENT watchdog: a detached shell timer that
+# runs Flash_Off.py after FLASH_WATCHDOG_S seconds unless flashOff() cancels
+# it first. It lives in its own session, so it survives this process hanging
+# in a C call, being killed, or crashing.
+FLASH_WATCHDOG_S = 45
+_flash_watchdog = None
+
+def _arm_flash_watchdog():
+    global _flash_watchdog
+    _disarm_flash_watchdog()
+    try:
+        _flash_watchdog = subprocess.Popen(
+            ["/bin/sh", "-c",
+             f"sleep {FLASH_WATCHDOG_S}; echo '[TakePhoto] FLASH WATCHDOG fired -- forcing flash off'; "
+             f"python /home/pi/Desktop/Mothbox/Flash_Off.py"],
+            start_new_session=True)
+    except Exception as e:
+        print(f"[TakePhoto] could not arm flash watchdog: {e}")
+
+def _disarm_flash_watchdog():
+    global _flash_watchdog
+    if _flash_watchdog is not None:
+        try:
+            os.killpg(_flash_watchdog.pid, 15)     # the whole sh+sleep session
+        except Exception:
+            pass
+        _flash_watchdog = None
+
 def flashOff():
     run_cmd("python /home/pi/Desktop/Mothbox/Flash_Off.py")
+    _disarm_flash_watchdog()
     print("Flash Off\n")
     run_cmd("python /home/pi/Desktop/Mothbox/Attract_On.py") # keep regulator on
 
 def flashOn():
     run_cmd("python /home/pi/Desktop/Mothbox/Attract_On.py")
     run_cmd("python /home/pi/Desktop/Mothbox/Flash_On.py")
-
+    _arm_flash_watchdog()
     print("Flash On\n")
 
 def is_csv_valid(filepath):
@@ -441,7 +479,7 @@ def run_calibration():
     print("!!! Autofocusing !!!")
     afstart = time.time()
     flashOn()
-    picam2.start(show_preview=False)
+    start_camera_or_warn(show_preview=False)
     #picam2.start()
     
     for i in range(5):
@@ -609,7 +647,7 @@ def takePhoto_Manual():
     print(exposure_times)
     
     time.sleep(1)
-    picam2.start()
+    start_camera_or_warn()
         
     time.sleep(3)
 
@@ -633,14 +671,25 @@ def takePhoto_Manual():
         picam2.set_controls({"ExposureTime":exposure_times[i] })
         print("exp  ",exposure_times[i],"  ",i)
         #picam2.set_controls({"NoiseReductionMode":controls.draft.NoiseReductionModeEnum.HighQuality})
-        picam2.start() #need to restart camera or wait a couple frames for settings to change
+        start_camera_or_warn() #need to restart camera or wait a couple frames for settings to change
 
         time.sleep(exposureset_delay)#need some time for the settings to sink into the camera)
         
         flashOn()
-        request = picam2.capture_request(flush=True)
-
-        flashOff()
+        try:
+            try:
+                # Bounded wait: a camera that "started" but delivers no frames
+                # (ribbon out) raises TimeoutError instead of hanging forever.
+                request = picam2.capture_request(flush=True, wait=CAPTURE_TIMEOUT_S)
+            except TypeError:
+                # very old picamera2 without numeric wait; the SIGALRM watchdog
+                # and the detached flash watchdog still cover a hang
+                request = picam2.capture_request(flush=True)
+        except Exception as e:
+            flashOff()
+            warn_no_camera(f"no frame from camera: {e.__class__.__name__}: {e}")
+        finally:
+            flashOff()
         #if not onlyflash:
             #flashOff()
         flashtime=time.time()-start
@@ -814,6 +863,7 @@ else:
 
 
 #HDR Controls
+CAPTURE_TIMEOUT_S = 20   # a healthy capture takes ~1 s; see flash watchdog notes above
 num_photos = 1
 exposuretime_width = 18000
 middleexposure=500 # requested exposure (us). Below the OwlSight's floor, so it is clamped to the minimum the sensor mode allows
@@ -882,7 +932,52 @@ AutoCalibrationPeriod = int(camera_settings.pop("AutoCalibrationPeriod",1000))
 
 
 #Start up cameras
-picam2 = Picamera2()
+# No camera (cable loose, ribbon backwards, dead module) is the one fault a
+# box in the field cannot show any other way while ACTIVE, so mirror the
+# Scheduler's standby warning: blink the lights 8 times, then give up on this
+# photo. Cron will try again next minute and warn again.
+def warn_no_camera(reason):
+    print(f"[TakePhoto] NO CAMERA DETECTED ({reason}) -- blinking 8x warning, skipping this photo")
+    run_cmd("python /home/pi/Desktop/Mothbox/Flash_Off.py")   # flash first: it must never stay on
+    _disarm_flash_watchdog()
+    run_cmd("python /home/pi/Desktop/Mothbox/scripts/blink_standby.py 8")
+    sys.exit(1)
+
+# Whole-photo watchdog inside this process: if anything in the camera path
+# blocks (a camera that starts but never delivers a frame), give up, kill the
+# flash, warn. SIGALRM is delivered while picamera2 waits on Python-level
+# events, which is where these hangs happen.
+import signal
+PHOTO_WATCHDOG_S = 150
+
+def _photo_watchdog(signum, frame):
+    warn_no_camera(f"photo did not complete within {PHOTO_WATCHDOG_S}s")
+
+signal.signal(signal.SIGALRM, _photo_watchdog)
+signal.alarm(PHOTO_WATCHDOG_S)
+
+try:
+    if not Picamera2.global_camera_info():
+        warn_no_camera("libcamera lists no cameras")
+    picam2 = Picamera2()
+except SystemExit:
+    raise
+except Exception as e:
+    warn_no_camera(f"{e.__class__.__name__}: {e}")
+
+def start_camera_or_warn(**kwargs):
+    """
+    picam2.start() that treats failure as "no camera". A ribbon that is
+    unplugged after boot does NOT vanish from libcamera's list (the ov64a40
+    overlay registered the sensor at boot, so Picamera2() still succeeds);
+    the first real I2C / streaming access is what fails, with
+    'Failed to start camera: Remote I/O error'. Every camera start in this
+    file goes through here so that case blinks the warning too.
+    """
+    try:
+        picam2.start(**kwargs)
+    except Exception as e:
+        warn_no_camera(f"camera failed to start: {e}")
 
 
 #----Autocalibration ---------
@@ -947,7 +1042,7 @@ if camera_settings:
     camera_settings["AnalogueGain"] = float(calib_gain)
     picam2.set_controls(camera_settings)
 
-picam2.start()
+start_camera_or_warn()
 time.sleep(1)
 
 print("cam started");
@@ -964,6 +1059,8 @@ takePhoto_Manual()
 
 
 picam2.stop()
+signal.alarm(0)
+_disarm_flash_watchdog()
 record_photo_taken()  # Only called on successful capture completion
 quit()
 

@@ -18,7 +18,7 @@ Deploy `Mothbox_Unified/*` to `/home/pi/Desktop/Mothbox/` and `mothbox_custom_Un
 Both builds are a Pi 5 with the Arducam 64MP OwlSight. Everything else on the GPIO differs, so `mothbox_hw.py` (the hardware abstraction layer) decides once per boot:
 
 1. `Scheduler.py` calls `mothbox_hw.detect_hardware()` right after the Pi model check.
-2. It raises the Pro's switched 3.3 V sensor rail (GPIO 27, active low; unconnected on a DIY), then probes I2C bus 1 for the three **PCA9555 switch expanders at 0x20 / 0x21 / 0x22**. Those chips exist only on the Pro PCB, so finding any of them means **Pro**; finding none means **DIY**. It also notes the LTR-303 light sensor (0x29) and identifies the voltage sensor at 0x40 (an INA260 answers with the TI manufacturer id 0x5449; otherwise it is the Pro's INA219).
+2. It raises the Pro's switched 3.3 V sensor rail (GPIO 27, active low; unconnected on a DIY), then probes I2C bus 1 for the three **PCA9555 switch expanders at 0x20 / 0x21 / 0x22**. Those chips exist only on the Pro PCB, so finding any of them means **Pro**; finding none means **DIY**. It also identifies the light sensor (LTR-F216A at 0x53 on new PCBs, LTR-303 at 0x29 on old ones, each verified by part id) and identifies the voltage sensor at 0x40 (an INA260 answers with the TI manufacturer id 0x5449; otherwise it is the Pro's INA219).
 3. The result is cached in `system/controls/hardware.txt`. Every other script reads the cache, so nothing probes I2C per photo.
 4. `hardware,auto|pro|diy` in `mothbox_settings.csv` (also in the settings editor) overrides detection if a box is ever misidentified. If detection cannot run at all, the firmware assumes Pro.
 
@@ -32,7 +32,7 @@ What differs per board, all handled inside `mothbox_hw.py`:
 | Flash | GPIO 19 MOSFET, active high, same 12 V rail | relay ch2 on GPIO 20, active low |
 | Config switches | 40 DIP switches via 3 PCA9555 expanders (schedule, days, mode) | OFF jumper GPIO 16, DEBUG jumper GPIO 12; schedule always from the CSV |
 | Voltage | INA219 @0x40 behind the 3.3 V sensor rail (GPIO 27) | optional INA260 @0x40, else "UNKNOWN" on the display |
-| Other sensors | LTR-303 light @0x29, DS18B20 on 1-Wire GPIO 4 | none |
+| Other sensors | light sensor: LTR-F216A @0x53 (new PCBs) or LTR-303 @0x29 (old PCBs); DS18B20 on 1-Wire GPIO 4 | none |
 | Camera orientation | `VerticalFlip=auto` -> 0 | `VerticalFlip=auto` -> 1 (mounted upside-down) |
 | e-paper display | always | optional, tolerated if absent |
 

@@ -150,8 +150,11 @@ def get_os_codename():
 
 def check_camera():
     """
-    Checks whether a camera is connected and responding using rpicam-hello
-    (the current tool on Raspberry Pi OS Bookworm and later).
+    Checks whether a camera is connected and responding by actually
+    streaming from it for half a second with rpicam-hello. Just listing
+    cameras is not enough: a ribbon unplugged after boot still shows up in
+    the list (the sensor overlay registered it at boot) and only fails when
+    streaming starts, with 'Remote I/O error'.
     Falls back to the older libcamera-hello if rpicam-hello is not found,
     for compatibility with older images.
     Returns True if a camera is detected, False otherwise.
@@ -161,10 +164,10 @@ def check_camera():
     for tool in ("rpicam-hello", "libcamera-hello"):
         try:
             result = subprocess.run(
-                [tool, "--list-cameras"],
+                [tool, "-n", "-t", "500"],      # no preview, 500 ms of real frames
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=25
             )
             output = result.stdout + result.stderr
             print(f"[-]    Camera check using {tool}:")
@@ -1267,18 +1270,56 @@ def clear_wakeup_alarm():
         f.write("0")  # Write 0 to clear the alarm
 
 
+MIN_WAKE_LEAD_S = 90   # never arm an alarm that could pass while we are still shutting down
+
 def set_wakeup_alarm(epoch_time):
     """
     Sets the wakeup alarm for the Raspberry Pi using /sys/class/rtc/rtc0/wakealarm.
 
+    The kernel compares the alarm against the RTC's own clock and silently
+    DISABLES an alarm that is already in the past (the write still succeeds),
+    so this also: refuses to arm anything less than MIN_WAKE_LEAD_S away,
+    warns if the RTC and system clocks disagree, and reads the alarm back to
+    log what the RTC actually holds.
+
     Args:
         epoch_time: A unix timestamp representing the next wakeup time.
     """
+    epoch_time = int(epoch_time)
+    now_sys = int(time.time())
+    if epoch_time - now_sys < MIN_WAKE_LEAD_S:
+        print(f"[!] Wake alarm only {epoch_time - now_sys}s away -- pushing it to {MIN_WAKE_LEAD_S}s "
+              f"so it cannot be swallowed by the shutdown itself.")
+        epoch_time = now_sys + MIN_WAKE_LEAD_S
+
+    # RTC vs system clock: the alarm is judged against the RTC, not `date`.
+    try:
+        with open("/sys/class/rtc/rtc0/since_epoch") as f:
+            rtc_now = int(f.read().strip())
+        skew = rtc_now - now_sys
+        if abs(skew) > 30:
+            print(f"[!] RTC is {skew:+d}s from the system clock -- syncing RTC with 'hwclock -w' before arming.")
+            os.system("sudo hwclock -w")
+    except Exception as e:
+        print(f"[!] Could not read RTC time: {e}")
+
     # Open the wakealarm file for writing
     with open("/sys/class/rtc/rtc0/wakealarm", "w") as f:
         # Write the epoch time in seconds
         f.write(str(epoch_time))
     logging.info("Set the Wakeup Alarm" + str(epoch_time))
+
+    # Read back what the RTC actually holds -- empty means it was rejected.
+    try:
+        with open("/sys/class/rtc/rtc0/wakealarm") as f:
+            armed = f.read().strip()
+        if armed == str(epoch_time):
+            print(f"[OK] RTC confirms wake alarm armed for {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(epoch_time))} (epoch {epoch_time})")
+        else:
+            print(f"[!!] RTC did NOT accept the wake alarm (holds {armed!r}, wanted {epoch_time}). "
+                  f"The box will not wake on its own.")
+    except Exception as e:
+        print(f"[!] Could not read back wake alarm: {e}")
     #Write to controls here!
     #set_nextWakeinControls("/boot/firmware/mothbox_custom/system/controls.txt",epoch_time)
     atomic_update_kv(os.path.join(CONTROL_ROOT, "nextwake.txt"), "nextwake", epoch_time)
@@ -1327,8 +1368,21 @@ def parse_int_list(value):
         return [int(v.strip()) for v in value.split(",") if v.strip()]
     return []
 
-def is_now_in_schedule(settings, runtime_minutes):
+EARLY_WAKE_GRACE_MIN = 3   # a wake that lands this much before a slot still counts as "in session"
+
+def is_now_in_schedule(settings, runtime_minutes, grace_minutes=EARLY_WAKE_GRACE_MIN):
+    """
+    True if now falls inside a scheduled session window.
+
+    grace_minutes: an RTC wake that lands slightly before its slot (clock
+    skew, or a boot that reaches this check a few seconds early) must count
+    as IN the window. Without it the box decides it is outside, re-arms an
+    alarm for the very same slot -- seconds away -- and starts shutting
+    down; that alarm then fires during the shutdown, is consumed, and the
+    box powers off with nothing pending. It never wakes again.
+    """
     now = datetime.datetime.now()
+    grace = datetime.timedelta(minutes=grace_minutes)
 
     minutes = parse_int_list(settings.get("minute", ""))
     hours = parse_int_list(settings.get("hour", ""))
@@ -1339,9 +1393,10 @@ def is_now_in_schedule(settings, runtime_minutes):
 
     now_weekday = now.weekday()
 
-    # Try all scheduled start times for today *and* yesterday
-    # (needed for cross-midnight runtimes)
-    for day_offset in (0, -1):
+    # Try all scheduled start times for tomorrow, today and yesterday:
+    # yesterday for cross-midnight runtimes, tomorrow so a wake that lands
+    # a few seconds before a 00:00 slot is inside the grace window.
+    for day_offset in (1, 0, -1):
         day = now.date() + datetime.timedelta(days=day_offset)
         weekday = (now_weekday + day_offset) % 7
 
@@ -1356,10 +1411,9 @@ def is_now_in_schedule(settings, runtime_minutes):
                 )
                 end = start + datetime.timedelta(minutes=runtime_minutes)
 
-                #print(start)
-                #print(now)
-                #print(end)
-                if start <= now < end:
+                if start - grace <= now < end:
+                    if now < start:
+                        print(f"[i] Woke {int((start - now).total_seconds())}s before the {start.strftime('%H:%M')} slot -- treating as in session.")
                     return True
 
     return False

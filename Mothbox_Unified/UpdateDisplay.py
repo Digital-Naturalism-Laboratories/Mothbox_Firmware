@@ -509,8 +509,15 @@ try:
     #Version Stuff
     draw.line([(epd.height/2,8.7*rowH),(epd.height,8.7*rowH)], fill = 0,width = 1)
 
+    # Body name at the left of the footer, version right-aligned to the panel
+    # edge so the two can never collide whatever the name's width.
     draw.text((colW, 8.7*rowH), 'MOTHBOX ' + hw_name.upper(), font=font_bigs, fill=0)
-    draw.text((colW+3, 8.7*rowH), '                          version:'+softwareversion, font=font_bigs, fill=0)
+    version_txt = 'v' + softwareversion
+    try:
+        version_w = font_bigs.getlength(version_txt)
+    except AttributeError:                       # very old Pillow
+        version_w = draw.textsize(version_txt, font=font_bigs)[0]
+    draw.text((epd.height - 2 - version_w, 8.7*rowH), version_txt, font=font_bigs, fill=0)
 
 
     #image = image.rotate(180) # rotate

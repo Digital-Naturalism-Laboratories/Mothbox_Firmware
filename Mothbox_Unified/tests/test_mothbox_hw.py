@@ -62,8 +62,13 @@ def install_fakes(bus=None, smbus_missing=False, pinctrl=None):
         if cmd[:3] == ["sudo", "pinctrl", "get"]:
             st = pinctrl.get(int(cmd[3]))
             return (0, f"{cmd[3]}: {st} // GPIO{cmd[3]}\n") if st else (1, "")
+        if cmd[:3] == ["sudo", "pinctrl", "set"] and getattr(hw, "_pinctrl_set_fails", False):
+            return (1, "")
         return (0, "")
     hw._run = fake_run
+    # outputs are pinctrl commands now: expose them like GPIO calls -> [(pin, level), ...]
+    gpio.outs = lambda: [(int(c[3]), 1 if c[5] == "dh" else 0) for c in runs
+                         if c[:3] == ["sudo", "pinctrl", "set"] and len(c) > 5 and c[4] == "op"]
     return hw, gpio, runs, tmp
 
 def swap(v): return ((v & 0xFF) << 8) | (v >> 8)
@@ -75,15 +80,20 @@ def check(name, cond):
     print(("OK  " if cond else "BAD ") + name); assert cond, name; passed += 1
 
 # ---------------------------------------------------------- detection --
-hw, gpio, runs, tmp = install_fakes(FakeBus({0x20,0x21,0x22,0x29,0x40}, {(0x40,0xFE): 0xFFFF}), pinctrl={27: "op dh pn | hi"})
+hw, gpio, runs, tmp = install_fakes(FakeBus({0x20,0x21,0x22,0x29,0x40}, {(0x40,0xFE): 0xFFFF}, bytes_={(0x29,0x86): 0xA0}), pinctrl={27: "op dh pn | hi"})
 info = hw.detect_hardware()
-check("pro: expanders found -> pro / ina219 / light", info["hardware"]=="pro" and info["detected_by"]=="i2c-expanders" and info["voltage_sensor"]=="ina219" and info["light_sensor"])
+check("pro (old PCB): expanders -> pro / ina219 / LTR-303 light", info["hardware"]=="pro" and info["detected_by"]=="i2c-expanders" and info["voltage_sensor"]=="ina219" and info["light_sensor"]=="ltr-303")
 check("pro: sensor rail raised (27 LOW) then restored (27 HIGH)", gpio.outs() == [(27,0),(27,1)])
 check("pro: cache written and read back", hw.get_hardware()=="pro" and hw.hardware_info()["voltage_sensor"]=="ina219")
 
+hw, gpio, runs, tmp = install_fakes(FakeBus({0x20,0x21,0x22,0x53,0x40}, bytes_={(0x53,0x06): 0xB1}), pinctrl={27: "op dh pn | hi"})
+info = hw.detect_hardware()
+check("pro (new PCB, ayerRobalo-style): LTR-F216A at 0x53 found by part id", info["hardware"]=="pro" and info["light_sensor"]=="ltr-f216a" and 0x53 in info["i2c_found"])
+hw, gpio, runs, tmp = install_fakes(FakeBus({0x20,0x21,0x22,0x53}, bytes_={(0x53,0x06): 0x00}), pinctrl={27: "op dh pn | hi"})
+check("pro: something at 0x53 with the wrong part id -> light none, not fooled", hw.detect_hardware()["light_sensor"]=="none")
 hw, gpio, runs, tmp = install_fakes(FakeBus(set()))
 info = hw.detect_hardware()
-check("diy: nothing on i2c -> diy / none", info["hardware"]=="diy" and info["detected_by"]=="i2c-none" and info["voltage_sensor"]=="none")
+check("diy: nothing on i2c -> diy / none", info["hardware"]=="diy" and info["detected_by"]=="i2c-none" and info["voltage_sensor"]=="none" and info["light_sensor"]=="none")
 
 hw, gpio, runs, tmp = install_fakes(FakeBus({0x40}, {(0x40,0xFE): swap(0x5449)}))
 info = hw.detect_hardware()
@@ -108,15 +118,15 @@ def pro_hw(pinctrl):
     hw, gpio, runs, tmp = install_fakes(FakeBus(set()), pinctrl=pinctrl); hw.HARDWARE_FILE.write_text("hardware=pro\nvoltage_sensor=ina219\n"); return hw, gpio, runs
 hw, gpio, runs = pro_hw({19:"op dl pn | lo"})
 hw.attract_on()
-check("pro attract_on: 12V rail then CH3,CH2,CH1,EXT high + pinctrl 7 dh", gpio.outs()==[(23,1),(9,1),(6,1),(5,1),(22,1)] and ["sudo","pinctrl","set","7","op","dh"] in runs)
+check("pro attract_on: 12V rail then CH3,CH2,CH1,EXT high + pinctrl 7 dh", gpio.outs()==[(23,1),(9,1),(6,1),(5,1),(22,1),(7,1)])
 hw, gpio, runs = pro_hw({19:"op dl pn | lo"}); hw.attract_off()
-check("pro attract_off, flash off: channels low, rail cut", gpio.outs()==[(9,0),(6,0),(5,0),(22,0),(23,0)])
+check("pro attract_off, flash off: channels low, rail cut", gpio.outs()==[(9,0),(6,0),(5,0),(22,0),(7,0),(23,0)])
 hw, gpio, runs = pro_hw({19:"op dh pn | hi"}); hw.attract_off()
-check("pro attract_off, flash ON: rail left up", (23,0) not in gpio.outs() and gpio.outs()==[(9,0),(6,0),(5,0),(22,0)])
+check("pro attract_off, flash ON: rail left up", (23,0) not in gpio.outs() and gpio.outs()==[(9,0),(6,0),(5,0),(22,0),(7,0)])
 hw, gpio, runs = pro_hw({}); hw.flash_on(); hw.flash_off()
 check("pro flash on/off: 19 high + rail up, then 19 low only", gpio.outs()==[(19,1),(23,1),(19,0)])
 hw, gpio, runs = pro_hw({}); hw.all_lights_off()
-check("pro all off: every channel + flash low, rail cut", gpio.outs()==[(9,0),(6,0),(5,0),(22,0),(19,0),(23,0)])
+check("pro all off: every channel + flash low, rail cut", gpio.outs()==[(9,0),(6,0),(5,0),(22,0),(19,0),(7,0),(23,0)])
 
 # -------------------------------------------------------- lights: DIY --
 def diy_hw(pinctrl):
@@ -131,7 +141,9 @@ hw, gpio, runs = diy_hw({20:"op dh pn | hi"}); hw.attract_off()
 check("diy attract_off, flash off: all three relays HIGH", gpio.outs()==[(26,1),(21,1),(20,1)])
 hw, gpio, runs = diy_hw({}); hw.flash_on(); hw.flash_off()
 check("diy flash: relay LOW then HIGH; no 12V rail pins touched", gpio.outs()==[(20,0),(20,1)] and all(p in (20,) for p,_ in gpio.outs()))
-check("diy: setup() passes initial level (no relay glitch)", all(c[3] is not None for c in gpio.calls if c[0]=="setup"))
+check("diy: no process ever claims a light pin (all via pinctrl, no GPIO.setup)", not gpio.calls)
+hw, gpio, runs = diy_hw({}); hw._pinctrl_set_fails = True; hw.flash_on()
+check("fallback when pinctrl is missing: RPi.GPIO with initial= (no relay glitch)", gpio.calls==[("setup",20,"OUT",0),("out",20,0)])
 hw, gpio, runs = diy_hw({}); hw.rail_12v(True); hw.rail_3v3(True)
 check("diy: rail helpers are no-ops", gpio.outs()==[])
 

@@ -66,7 +66,8 @@ DIY = dict(
 
 I2C_BUS        = 1
 PCA9555_ADDRS  = (0x20, 0x21, 0x22)
-LTR303_ADDR    = 0x29
+LTR303_ADDR    = 0x29              # light sensor on old-revision Pro PCBs   (part id reg 0x86 == 0xA0)
+LTRF216A_ADDR  = 0x53              # light sensor on new-revision Pro PCBs   (part id reg 0x06 == 0xB1)
 INA_ADDR       = 0x40
 INA260_MFR_ID  = 0x5449            # "TI", register 0xFE -- the INA219 has no such register
 
@@ -114,10 +115,23 @@ def _gpio():
 
 def _out(pin, high):
     """
-    Drive a pin as an output at the given level. `initial` is passed to
-    setup() so an active-low relay never glitches through the wrong state
-    between setup() and output().
+    Drive a pin as an output at the given level.
+
+    Uses `pinctrl`, which pokes the pad registers directly and takes NO kernel
+    line claim. That matters because on the Pi 5 RPi.GPIO is the rpi-lgpio shim
+    over the gpio character device, where a claimed line belongs to the
+    claiming process until it exits. Scheduler.py lives for the whole session
+    and calls into this module (hardware detection), so if it claimed GPIO 27
+    every later script needing the sensor rail failed with 'GPIO busy'. The
+    codebase already drives GPIO 7 this way. The pad keeps its level after the
+    command returns, exactly as it did when the old one-shot scripts exited.
+
+    Falls back to RPi.GPIO (with `initial=` so an active-low relay does not
+    glitch) if pinctrl is unavailable.
     """
+    rc, _ = _run(["sudo", "pinctrl", "set", str(pin), "op", "dh" if high else "dl"])
+    if rc == 0:
+        return
     GPIO = _gpio()
     level = GPIO.HIGH if high else GPIO.LOW
     GPIO.setup(pin, GPIO.OUT, initial=level)
@@ -203,6 +217,21 @@ def _probe(bus, addr):
         return False
 
 
+def _light_sensor(bus):
+    """'ltr-f216a' | 'ltr-303' | 'none', verified by part id like scripts/readLightSensor.py."""
+    try:
+        if bus.read_byte_data(LTRF216A_ADDR, 0x06) == 0xB1:
+            return "ltr-f216a"
+    except Exception:
+        pass
+    try:
+        if bus.read_byte_data(LTR303_ADDR, 0x86) == 0xA0:
+            return "ltr-303"
+    except Exception:
+        pass
+    return "none"
+
+
 def _ina260_present(bus):
     try:
         return _swap16(bus.read_word_data(INA_ADDR, 0xFE)) == INA260_MFR_ID
@@ -217,10 +246,10 @@ def detect_hardware(write_cache=True, verbose=True):
       detected_by    'settings' | 'i2c-expanders' | 'i2c-none' | 'fallback-...'
       i2c_found      list of addresses that answered
       voltage_sensor 'ina219' | 'ina260' | 'none'
-      light_sensor   True/False (LTR-303 answered)
+      light_sensor   'ltr-f216a' (new PCBs) | 'ltr-303' (old PCBs) | 'none'
     """
     info = {"hardware": DEFAULT_HARDWARE, "detected_by": "fallback-default",
-            "i2c_found": [], "voltage_sensor": "none", "light_sensor": False}
+            "i2c_found": [], "voltage_sensor": "none", "light_sensor": "none"}
 
     forced = settings_override()
 
@@ -242,14 +271,14 @@ def detect_hardware(write_cache=True, verbose=True):
                     time.sleep(0.2)
             except Exception:
                 pass
-            found = [a for a in (*PCA9555_ADDRS, LTR303_ADDR, INA_ADDR) if _probe(bus, a)]
+            found = [a for a in (*PCA9555_ADDRS, LTR303_ADDR, LTRF216A_ADDR, INA_ADDR) if _probe(bus, a)]
             info["i2c_found"] = found
             expanders = [a for a in found if a in PCA9555_ADDRS]
             if expanders:
                 info["hardware"], info["detected_by"] = "pro", "i2c-expanders"
             else:
                 info["hardware"], info["detected_by"] = "diy", "i2c-none"
-            info["light_sensor"] = LTR303_ADDR in found
+            info["light_sensor"] = _light_sensor(bus)
             if INA_ADDR in found:
                 if _ina260_present(bus):
                     info["voltage_sensor"] = "ina260"
@@ -280,7 +309,7 @@ def detect_hardware(write_cache=True, verbose=True):
                 "hardware": info["hardware"], "detected_by": info["detected_by"],
                 "i2c_found": ",".join(hex(a) for a in info["i2c_found"]),
                 "voltage_sensor": info["voltage_sensor"],
-                "light_sensor": int(info["light_sensor"]),
+                "light_sensor": info["light_sensor"],
                 "detected_at": info["detected_at"],
             })
         except Exception as e:

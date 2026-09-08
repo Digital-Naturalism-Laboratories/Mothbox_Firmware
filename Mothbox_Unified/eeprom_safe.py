@@ -84,6 +84,28 @@ def _atomic_write(path, text):
     os.replace(tmp, path)
 
 
+def _state_writable():
+    """
+    True if the persistent state dir can actually be written.
+
+    This gates EVERYTHING below. The retry counter is the only thing bounding
+    how many times we stage an EEPROM flash and reboot; if the root filesystem
+    is full or read-only (an unclean shutdown can remount it ro) the counter
+    silently stays at 0 and the box reboots forever. Refusing to provision is
+    always the safe answer -- a box that does not sleep is recoverable, a box
+    in a reboot loop in the field is not.
+    """
+    try:
+        probe = os.path.join(STATE_DIR, ".writetest")
+        _atomic_write(probe, "ok\n")
+        os.remove(probe)
+        return True
+    except Exception as e:
+        print(f"[eeprom] State dir {STATE_DIR} is not writable ({e}); "
+              f"skipping EEPROM provisioning this boot.")
+        return False
+
+
 def _read_attempts():
     try:
         with open(EEPROM_ATTEMPTS) as f:
@@ -139,24 +161,52 @@ def _parse_config(raw):
 
 def _editable_config_text():
     """Full current config text from rpi-eeprom-config -- the edit source."""
-    raw = subprocess.check_output(["sudo", "rpi-eeprom-config"]).decode("utf-8")
+    raw = subprocess.check_output(["sudo", "rpi-eeprom-config"], timeout=30).decode("utf-8")
     return raw
 
 
-def _live_config():
+def _config_sources():
     """
-    The RUNNING EEPROM config, for verification. Prefer vcgencmd (reflects what
-    the ROM actually loaded this boot); fall back to rpi-eeprom-config.
+    Every readable view of the EEPROM config, as (source-name, dict) pairs.
+
+      vcgencmd bootloader_config -- what the ROM actually loaded THIS boot
+      rpi-eeprom-config          -- what is written in the EEPROM image now
+
+    Both are consulted because they can legitimately disagree, and because a
+    key that is absent from one is not proof it is unset in the other.
     """
-    for cmd in (["vcgencmd", "bootloader_config"], ["sudo", "rpi-eeprom-config"]):
+    out = []
+    for name, cmd in (("vcgencmd", ["vcgencmd", "bootloader_config"]),
+                      ("rpi-eeprom-config", ["sudo", "rpi-eeprom-config"])):
         try:
-            raw = subprocess.check_output(cmd).decode("utf-8")
-            cfg = _parse_config(raw)
+            cfg = _parse_config(subprocess.check_output(cmd, timeout=30).decode("utf-8"))
             if cfg:
-                return cfg
+                out.append((name, cfg))
         except Exception:
             continue
-    return {}
+    return out
+
+
+def _live_config():
+    """The running EEPROM config (first source that answers). Kept for callers/tests."""
+    srcs = _config_sources()
+    return srcs[0][1] if srcs else {}
+
+
+def _verify_desired():
+    """
+    (satisfied, source, cfg) -- satisfied if ANY source shows the desired keys.
+
+    Accepting either source is deliberate. Re-flashing the EEPROM is the risky
+    operation here, so a disagreement between the two views must never be able
+    to drive repeated reflashes: if the EEPROM image already contains the keys,
+    the job is done even when vcgencmd does not echo them back.
+    """
+    srcs = _config_sources()
+    for name, cfg in srcs:
+        if _matches_desired(cfg):
+            return True, name, cfg
+    return False, (srcs[0][0] if srcs else "none"), (srcs[0][1] if srcs else {})
 
 
 def _matches_desired(cfg):
@@ -185,7 +235,7 @@ def _stage_update(raw_config_text):
     _atomic_write("/tmp/eeprom_config.txt", "\n".join(out_lines).rstrip("\n") + "\n")
     subprocess.run(
         ["sudo", "rpi-eeprom-config", "--apply", "/tmp/eeprom_config.txt"],
-        check=True,
+        check=True, timeout=120,
     )
     # An unflushed .upd is a classic cause of a corrupt flash next boot.
     subprocess.run(["sync"], check=False)
@@ -293,8 +343,23 @@ def ensure_eeprom_configured(blink_error=None):
                      update cancelled. Continue booting in a degraded state.
       "defer"     -- first-boot resize not finished; skip this boot, retry next.
     """
+    if not _state_writable():
+        return "defer"
+
     if os.path.exists(EEPROM_FLAG):
-        return "ok"
+        # The flag only means "we provisioned this once". An OS / bootloader
+        # upgrade can rewrite the EEPROM config underneath us (Sept 2026: a box
+        # stopped waking after `apt full-upgrade` while this flag still said
+        # ok), so re-check the LIVE config every boot. vcgencmd is cheap.
+        try:
+            if _verify_desired()[0]:
+                return "ok"
+            print("[eeprom] !! Running EEPROM no longer matches the desired settings "
+                  "(bootloader updated?) -- clearing the provisioned flag and re-provisioning.")
+            os.remove(EEPROM_FLAG)
+        except Exception as e:
+            print(f"[eeprom] Could not re-verify the live config ({e}); trusting the flag.")
+            return "ok"
 
     if os.path.exists(EEPROM_FAILED):
         print("[eeprom] Provisioning previously FAILED -- re-signalling, not retrying.")
@@ -305,13 +370,15 @@ def ensure_eeprom_configured(blink_error=None):
         print("[eeprom] First-boot resize not finished yet -- deferring provisioning.")
         return "defer"
 
-    live = _live_config()
+    satisfied, source, live = _verify_desired()
 
-    # ---- Verification / success: the running EEPROM already matches. ----
-    if _matches_desired(live):
-        print("[eeprom] Verified: running EEPROM matches desired settings.")
+    # ---- Verification / success: the EEPROM already matches. ----
+    if satisfied:
+        print(f"[eeprom] Verified via {source}: EEPROM matches desired settings.")
         _set_success()
         return "ok"
+    print(f"[eeprom] Desired keys not found in any source (checked {source}); "
+          f"live values: {{{', '.join(f'{k}={live.get(k)!r}' for k in DESIRED)}}}")
 
     # ---- Mismatch: decide whether to (re)try or give up. ----
     attempts = _read_attempts()
@@ -322,6 +389,11 @@ def ensure_eeprom_configured(blink_error=None):
 
     attempts += 1
     _write_attempts(attempts)
+    if _read_attempts() != attempts:
+        # The counter did not persist, so a reboot here could never be bounded.
+        print(f"[eeprom] Could not persist the retry counter -- refusing to stage an "
+              f"EEPROM update (a reboot loop would be unrecoverable in the field).")
+        return "defer"
     print(f"[eeprom] Applying settings (attempt {attempts}/{MAX_ATTEMPTS}); "
           f"rebooting cleanly to flash...")
     try:
