@@ -264,7 +264,18 @@
 
     <section>
       <h2>Identity</h2>
-      <p class="sechint">What this Mothbox calls itself in its data folders.</p>
+      <p class="sechint">Which Mothbox this is, and what it calls itself in its data folders.</p>
+
+      <div class="field" id="wrap-hardware">
+        <label class="lbl" for="f-hardware">Mothbox hardware</label>
+        <select id="f-hardware" data-key="hardware">
+          <option value="auto">Auto-detect (recommended)</option>
+          <option value="pro">Mothbox Pro (custom PCB)</option>
+          <option value="diy">Mothbox DIY (relay HAT)</option>
+        </select>
+        <p class="hint">The firmware works out which box it is running on at every boot by looking for the Pro PCB&rsquo;s switch chips. Only force this if a box is misidentified.</p>
+        <div class="fielderr" id="e-hardware"></div>
+      </div>
 
       <div class="field">
         <label class="lbl" for="f-autoname">Auto-generate name</label>
@@ -373,17 +384,6 @@
         <input type="number" id="f-backup_interval" data-key="backup_interval" min="1" max="999" step="1">
         <p class="hint">How often new photos are copied to the USB drive during a session. A final backup always runs at the end of every session, so a longer gap just saves a little power.</p>
         <div class="fielderr" id="e-backup_interval"></div>
-      </div>
-
-      <div class="field" id="wrap-hardware">
-        <label class="lbl" for="f-hardware">Mothbox hardware</label>
-        <select id="f-hardware" data-key="hardware">
-          <option value="auto">Auto-detect (recommended)</option>
-          <option value="pro">Mothbox Pro (custom PCB)</option>
-          <option value="diy">Mothbox DIY (relay HAT)</option>
-        </select>
-        <p class="hint">The firmware works out which box it is running on at every boot by looking for the Pro PCB&rsquo;s switch chips. Only force this if a box is misidentified.</p>
-        <div class="fielderr" id="e-hardware"></div>
       </div>
 
       </div>
