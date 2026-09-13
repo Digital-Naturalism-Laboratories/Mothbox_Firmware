@@ -306,7 +306,8 @@ def auto_cast_value(setting, value):
     if setting in ("AeEnable", "AwbEnable"):
         return value.lower() in ("1", "true", "yes", "on")
 
-    if setting in ("LensPosition", "AnalogueGain", "ExposureValue"):
+    if setting in ("LensPosition", "AnalogueGain", "ExposureValue",
+                   "LensPositionMin", "LensPositionMax"):
         return float(value)
 
     if setting == "VerticalFlip" and str(value).strip().lower() == "auto":
@@ -329,6 +330,26 @@ def auto_cast_value(setting, value):
         return int(value)
     except ValueError:
         return value
+
+
+# Plausible autofocus range, in diopters (1/metres), from camera_settings.csv.
+# Default is deliberately broad -- 6 cm (16.7) to 2.5 m (0.4) -- so every
+# normal Mothbox setup passes; tighten it per box for the guard to bite
+# harder. This is a SEPARATE safeguard from the AF-failed check below:
+# that one catches a covered lens (scan fails); this one catches a scan that
+# SUCCEEDS on the wrong thing -- e.g. something small right in front of the
+# lens -- by rejecting a focus outside the range this box is known to use.
+AF_LENS_MIN = 0.4    # 2.5 m
+AF_LENS_MAX = 16.7   # 6 cm
+
+def extract_af_limits(settings):
+    """Pop LensPositionMin/Max out of the settings dict (picamera2 would reject them as controls)."""
+    global AF_LENS_MIN, AF_LENS_MAX
+    AF_LENS_MIN = float(settings.pop("LensPositionMin", AF_LENS_MIN))
+    AF_LENS_MAX = float(settings.pop("LensPositionMax", AF_LENS_MAX))
+    if AF_LENS_MIN > AF_LENS_MAX:
+        print(f"[TakePhoto] LensPositionMin {AF_LENS_MIN} > LensPositionMax {AF_LENS_MAX} -- ignoring both")
+        AF_LENS_MIN, AF_LENS_MAX = 0.4, 16.7
 
 
 def load_camera_settings(retrying=False):
@@ -518,12 +539,31 @@ def run_calibration():
     
     
 
-    calib_lens_position = md['LensPosition']
-    atomic_update_kv(AF_LENS_PATH, "aflensposition", calib_lens_position)
-    focusstate = md['AfState']
+    new_lens_position = md['LensPosition']
+    focusstate = md['AfState']           # libcamera: 0 Idle, 1 Scanning, 2 Focused, 3 Failed
+    AF_STATE_NAMES = {0: "Idle", 1: "Scanning", 2: "Focused", 3: "Failed"}
 
-    print("LensPosition: "+str(calib_lens_position))
-    print(focusstate)
+    # Safeguard 1: only trust the scan if libcamera says it focused. Anything
+    # covering the lens -- the cap, or a moth sitting on it -- makes the scan
+    # fail and leaves the lens wherever it stopped, often 0.0 (infinity).
+    # Saving that used to make every photo blurry until the next calibration.
+    # Safeguard 2 (optional, LensPositionMin/Max in camera_settings.csv): a scan
+    # that succeeded but outside the range this box is known to use. Defaults
+    # are wide open, so with no settings any successful focus is accepted,
+    # whether the subject is 10 cm or 2 m away.
+    if not (success and focusstate == 2):
+        print(f"[TakePhoto] AUTOFOCUS FAILED (AfState={AF_STATE_NAMES.get(focusstate, focusstate)}, "
+              f"lens ended at {new_lens_position}) -- something is probably covering the lens; "
+              f"keeping the previous lens position {calib_lens_position}")
+    elif not (AF_LENS_MIN <= new_lens_position <= AF_LENS_MAX):
+        where = f"~{100.0/new_lens_position:.0f} cm" if new_lens_position > 0 else "infinity"
+        print(f"[TakePhoto] AUTOFOCUS REJECTED: focused at {new_lens_position} diopters ({where}) "
+              f"but this box allows {AF_LENS_MIN}-{AF_LENS_MAX} (LensPositionMin/Max in "
+              f"camera_settings.csv) -- keeping the previous lens position {calib_lens_position}")
+    else:
+        calib_lens_position = new_lens_position
+        atomic_update_kv(AF_LENS_PATH, "aflensposition", calib_lens_position)
+        print(f"LensPosition: {calib_lens_position}  (AfState {AF_STATE_NAMES.get(focusstate, focusstate)})")
 
 
     #camera_settings["LensPosition"]=calib_lens_position
@@ -929,6 +969,7 @@ calib_gain          = float(read_control(AF_GAIN_PATH, "autogain", 1.0))
 
 AutoCalibration = camera_settings.pop("AutoCalibration",1) #defaults to what is set above if not in the files being read
 AutoCalibrationPeriod = int(camera_settings.pop("AutoCalibrationPeriod",1000))
+extract_af_limits(camera_settings)
 
 
 #Start up cameras
@@ -1001,6 +1042,7 @@ else:
 camera_settings = load_camera_settings()
 AutoCalibration = camera_settings.pop("AutoCalibration",1) #defaults to what is set above if not in the files being read
 AutoCalibrationPeriod = int(camera_settings.pop("AutoCalibrationPeriod",1000))
+extract_af_limits(camera_settings)
 
 if AutoCalibration:
     None

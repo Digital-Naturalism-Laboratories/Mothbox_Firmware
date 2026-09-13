@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mothbox Camera Settings Editor</title>
+<link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAACuklEQVR42u1bMW4cMQzUCIKR0gb8iJyRNvAzUrp1a7eu8gFXqeMyqVPlHflA/Ac37q5wQTd3wHkhSqRE7epuJWDhK1ZacTQkh9w1vv6+d2se3q18DAAGAAOAAcCSg3bXYMCpA0C9ssMvbGRuoDU43thIMgJIsg4sDsIXnvRl4rRoBleCFQt9ISVfmIdBSeUS+p8VgmPGAAgQp4oTys19S8QDWDBAEmCQoHwLV+AMJAXLKGabr0xDORAOx1Ul/ZEABQo7PtwbBBQngX/v70Niw/8N06GE8iJ2BMUJU+Z0YiCUBjqrTACrIAgGDK3voxKUlPGkcAsxA7SMgGs7UHviKQBIsYHWhlqCkpwXKqRwTyAUp91g9EAck9FWAFTL0B4qTz9Dh4cm1/fE/B+R+5v2CHwjGsdS0n79R8YIcs49MHOsDYfWBWBUu08NgkLrW+8t6gKIiB8wVKadvEWlHqeMBE8JMzD7mrLvDweYF6o+bjOflQqMGE0hofoXpVsc7v2G21swbmI6BZWJAV67TlWW8oZFSiryI9NDcEzQJAELJeOcsykU1PqtRRPN1FkWNUR6lLylxVuREJpSuHYzEBZa10bP+ptjlC8IIty1mczZJFIkMmX0P+XaYOLMN8taIOfHz0qW0OR3au5zq9jhDaSuRrdLVKN0HUrMmbUYei2MyBx1oWjLo4dy+GJyEmCkreSFSmxO7l0ALQkARRRcrmEK4ZoWDdZZXICE7wUpkwUgXHNrKdLCQm9tSTA/pT/M1KIVAK1kbPMvRIJzi0rUu93fp6W08lIATE/351I1R29fiW3XAEDKrz+thQG3kTRIa3KBX9q3uKceBLsEAD1ttFVLLBh9FXZURlt8INEjGJg7BvQABnoJgnOCgd6zQAswcKxpsAYMnJoO0LbETloIYfzT1ABgADAAGAB0MN4BqPrlDykqRRgAAAAASUVORK5CYII=">
+<style>
+  :root {
+    --bg: #f6f5f2;
+    --panel: #ffffff;
+    --ink: #1d2321;
+    --muted: #64706c;
+    --line: #d9d6cf;
+    --accent: #3f7d5c;
+    --accent-ink: #ffffff;
+    --warn: #9a6b12;
+    --warn-bg: #fdf3dc;
+    --err: #b3261e;
+    --err-bg: #fdecea;
+    --ok: #2f6f4f;
+    --night: #2b3550;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181a;
+      --panel: #1c2124;
+      --ink: #e7e9e7;
+      --muted: #9aa5a1;
+      --line: #333b3e;
+      --accent: #5da97e;
+      --accent-ink: #10201a;
+      --warn: #e8c169;
+      --warn-bg: #33290f;
+      --err: #ff9b92;
+      --err-bg: #3a1c19;
+      --ok: #7fc79f;
+      --night: #39456b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 0 0 4rem;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    padding: 1.1rem 1.25rem;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; }
+  h1 { margin: 0 0 .15rem; font-size: 1.25rem; letter-spacing: .01em; display: flex; align-items: center; gap: .5rem; }
+  h1 .moth { display: block; width: 28px; height: 28px; }
+  .sub { color: var(--muted); font-size: .85rem; margin: 0; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-top: .8rem; }
+  button, .filebtn {
+    font: inherit;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--ink);
+    padding: .45rem .8rem;
+    border-radius: var(--radius);
+    cursor: pointer;
+  }
+  button:hover, .filebtn:hover { border-color: var(--accent); }
+  button.primary {
+    background: var(--accent);
+    color: var(--accent-ink);
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary:disabled { background: var(--muted); border-color: var(--muted); color: var(--panel); }
+  input[type=file] { display: none; }
+  main { max-width: 1120px; margin: 0 auto; padding: 0 1.25rem; }
+  /* Schedule: controls on the left, what they add up to on the right. */
+  .twocol { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 1.8rem; }
+  .twocol > div { min-width: 0; }
+  .twocol .outcome { position: sticky; top: 8.5rem; align-self: start; }
+  @media (max-width: 900px) {
+    .twocol { grid-template-columns: minmax(0, 1fr); }
+    .twocol .outcome { position: static; }
+  }
+  section {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 1rem 1.1rem 1.15rem;
+    margin-top: 1.1rem;
+  }
+  section > h2 {
+    margin: 0 0 .2rem;
+    font-size: 1rem;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--muted);
+  }
+  .sechint { color: var(--muted); font-size: .84rem; margin: 0 0 .9rem; }
+  .field { margin-top: .95rem; }
+  .field:first-of-type { margin-top: .4rem; }
+  label.lbl { display: block; font-weight: 600; margin-bottom: .2rem; }
+  .hint { color: var(--muted); font-size: .82rem; margin: .25rem 0 0; }
+  input[type=text], input[type=number], input[type=password], select {
+    font: inherit;
+    color: var(--ink);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: .42rem .55rem;
+    width: 100%;
+    max-width: 26rem;
+  }
+  input[type=number] { max-width: 9rem; }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  input:disabled { opacity: .6; cursor: not-allowed; }
+  .row { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+  .seg button {
+    border: 0;
+    border-radius: 0;
+    padding: .35rem .95rem;
+    background: transparent;
+  }
+  .seg button[aria-pressed=true] { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .days { display: flex; flex-wrap: wrap; gap: .35rem; }
+  .day {
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: .35rem .1rem;
+    flex: 1 1 3.2rem;
+    max-width: 4.6rem;
+    text-align: center;
+    cursor: pointer;
+    user-select: none;
+    background: var(--bg);
+    font-size: .88rem;
+  }
+  .day input { position: absolute; opacity: 0; pointer-events: none; }
+  .day.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  .hours { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: .3rem; max-width: 34rem; }
+  @media (max-width: 620px) { .hours { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+  .hr {
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: var(--bg);
+    padding: .35rem 0;
+    text-align: center;
+    cursor: pointer;
+    font-variant-numeric: tabular-nums;
+    font-size: .84rem;
+    user-select: none;
+  }
+  .hr.night { background: color-mix(in srgb, var(--night) 16%, var(--bg)); }
+  .hr.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
+  .hr input { position: absolute; opacity: 0; pointer-events: none; }
+  .chips { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .5rem; }
+  .chip {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: .15rem .6rem;
+    font-size: .82rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .timeline { margin-top: .5rem; }
+  .tlrow { display: grid; grid-template-columns: 3.1rem 1fr; align-items: center; gap: .5rem; margin-bottom: .28rem; }
+  .tlname { font-size: .82rem; color: var(--muted); }
+  .tlbar {
+    position: relative;
+    height: 17px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  .tlbar.off { opacity: .45; }
+  .tlblk { position: absolute; top: 0; bottom: 0; background: var(--accent); }
+  .tlblk.spill { background: color-mix(in srgb, var(--accent) 55%, transparent); }
+  .tltick { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line); }
+  .tlaxis { display: grid; grid-template-columns: 3.1rem 1fr; gap: .5rem; color: var(--muted); font-size: .72rem; }
+  .tlaxis div:last-child { display: flex; justify-content: space-between; }
+  .msg { border-radius: 8px; padding: .5rem .7rem; font-size: .87rem; margin-top: .5rem; }
+  .msg.err { background: var(--err-bg); color: var(--err); border: 1px solid currentColor; }
+  .msg.warn { background: var(--warn-bg); color: var(--warn); border: 1px solid currentColor; }
+  .fielderr { color: var(--err); font-size: .82rem; margin-top: .25rem; }
+  .stats { display: flex; flex-wrap: wrap; gap: 1.2rem; margin-top: .8rem; }
+  .stat strong { display: block; font-size: 1.25rem; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; }
+  pre {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: .7rem;
+    overflow-x: auto;
+    font-size: .8rem;
+    line-height: 1.45;
+    margin: .6rem 0 0;
+  }
+  details { margin-top: .8rem; }
+  summary { cursor: pointer; color: var(--muted); font-size: .88rem; }
+  .drop {
+    border: 2px dashed var(--line);
+    border-radius: var(--radius);
+    padding: 1.4rem;
+    text-align: center;
+    color: var(--muted);
+    margin-top: 1.1rem;
+    background: var(--panel);
+  }
+  .drop.hot { border-color: var(--accent); color: var(--accent); }
+  .drop strong { display: block; color: var(--ink); font-size: 1.02rem; margin-bottom: .4rem; }
+  .drop #dropwhy { display: block; max-width: 42rem; margin: 0 auto; font-size: .85rem; }
+  .status { font-size: .84rem; color: var(--muted); }
+  .status.good { color: var(--ok); }
+  ul.tips { margin: .4rem 0 0; padding-left: 1.1rem; color: var(--muted); font-size: .87rem; }
+  ul.tips li { margin-bottom: .3rem; }
+  ul.tips strong { color: var(--ink); }
+  .inline { display: flex; align-items: center; gap: .45rem; }
+  .unknown { font-size: .84rem; color: var(--muted); }
+  .badge {
+    font-size: .68rem;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: .05rem .45rem;
+    color: var(--muted);
+    margin-left: .4rem;
+    vertical-align: 1px;
+  }
+</style>
+<style>
+  .readout { color: var(--muted); font-size: .84rem; margin: .25rem 0 0; font-variant-numeric: tabular-nums; }
+  .readout strong { color: var(--ink); }
+  .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 1.2rem; }
+  @media (max-width: 620px) { .pair { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1><img class="moth" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAErElEQVR4Xu2ZT0hUQRzH3wZqRYnIKrtbBrFGvZQOIW50CIo6hIQeoig72LEOXTrVoUuHLh0y6A9E1KWgTgZWgnUIKtjyZKYedAnW1txdUNlI14KXTxuZHec385v3Zve92O3Wvnm/+X0/853fb+YZMMr8X6DM9RsVABUHlDmByhbw0gB9wVHLnr8ru9ezhfBsYlt42QCwhfJWWQSgVHC0OQASSVbaCQBoa+iEowRAJhLaz1DCqr9jts1gKGkd+9GE1oUeSE9+5JHZUHsikGULqKogXeNJHk6coQSAhmAsHyK7sua690X7nbW0CAC0ZToHzOpAW+A3Fr6syykDsAO+CiasJWNxJbaKKHY8D4C6K8aWW+lKN3XUTrkriA2mkixWLHZcoRvl4knc5s6I0fqwbk33OgDvWlLW7MzcmnNkhxSsjbP9efN9z+QoHQ8Sy3MV1mnQ1iC/s3GEW4AkKHMEtviw9QELwMl+x+aOqgGYYBgIojZKV3KR62TzYHKlgaIAsG1Gtd/LKjH2OebkKHMrO5cSACwIrCAd41RXHARAB4ISkxVEHYJ0xFDRsuYAzEt0cn6D4TR/xwD8AENVNC9nLQCgHqvDzrwYboSzuWoFwAPBJnvgVvRq6FzNDZ6wqQeLN4euJC5D7tIhHATAHi11rB50euO1KiKuakOV0ZHeVdCddApn50ZNhDmYiIDJjrGyO4VKbHosBI7OB30Z4gXbfXr7uHmn1uSdD3hJs/cA+/9Dx7PW1Od0wU1OtuJ0nNehhJX/s3ozhbZO4nru2XBv8hTPeei7gGxL8C45Mgjsc5Hw2P1oa/hkzVcsbGyX4gL40JKxMjMZmWbwOWv5j/syVjq1Go88Y8WyvzdGGoyDww2oLYpJNBxtNGLx4Dq9oANkNsRMyusKomIrKpoq87FjDw2YdfVtgXleDOldQCeILdVbjaOppoCoOOmcj7fnWQhCB0B2dbMadsxSAaDzhzoZagvoAEEnED+ctqa/FH5Upp9PP//VHr/4Le4UNIk1cS3XN3I32SlyAgoAxkqpp/k9ny5NjpGk229HzcjZmnGRCNnHDfKum9hQHSK/owFg2wp21aAugH1fpYVqcQDU06EPErzVpT+J8eoAqQ+YD6f0ymIKp6saAK2KHXT4zNxsYjBVx1LG2psXmwdK93Hc1RZg95XssxQtCHMOeLvtu5XLz3P/0MHO9SI4Zln//jAi2j5FcQC96iIbsu1I1gYxXQczBlO3HBVBlrQoGfYZdn9DMXfEQgv7X9ZvFjkJqldKJ0FMYYFAiCq0ykEIsi3W9iVzgErrUgGgElc2tmg1QDaxyCXTTxYv2M/D3RvvkXFOnIfJwXcAZNdhjCiVMf8FgJGeuYWJ/tRGFWHYsb4BQFon7YAqo9royDaDt0SsSE/OAU6Si/XuPB/u3vSYPi2+iSStn0s5J+FQ7/jKAfQBqtjFj8T3HQDUsmkcpAygVCujUSM3lOgSZb8g/SZIRy1Wj9YNQSaank8JgJ9hqIjWAsAPMJyK1g6glDB0iC4qgGLA0C26ZADcwCimaE8AYGCUSrTnAHS3PTfxHLdBN5P66d0KAD+thhe5VBzgBXU/zfkXmP+EbjLVQy0AAAAASUVORK5CYII=" alt="" width="28" height="28"> Mothbox Camera Settings Editor</h1>
+    <p class="sub">Edits the <code>camera_settings.csv</code> sitting next to this page &mdash; focus, exposure, calibration and image options. The schedule and battery live in the other editor, <code>mothbox_settings_editor.html</code>.</p>
+    <div class="toolbar">
+      <button id="btn-save" class="primary" disabled>Save</button>
+      <button id="btn-defaults">Stock settings</button>
+      <span class="status" id="status">Looking for camera_settings.csv&hellip;</span>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="drop" id="drop">
+    <strong>Drag <code>camera_settings.csv</code> from this folder onto this page.</strong>
+    <span id="dropwhy"></span>
+  </div>
+
+  <div id="loaderrors"></div>
+
+  <div id="form" hidden>
+
+    <section>
+      <h2>Calibration</h2>
+      <p class="sechint">Before a session the Mothbox can autofocus and meter the scene itself, then reuse the result for every photo.</p>
+
+      <div class="field">
+        <label class="lbl">Auto-calibrate</label>
+        <div class="seg" id="f-AutoCalibration" data-key="AutoCalibration"></div>
+        <p class="hint">On: autofocus and auto-exposure run when the period below has elapsed. Off: only the manual focus and exposure values on this page are used.</p>
+      </div>
+
+      <div class="field" id="wrap-AutoCalibrationPeriod">
+        <label class="lbl" for="f-AutoCalibrationPeriod">Re-calibrate every (seconds)</label>
+        <input type="number" id="f-AutoCalibrationPeriod" data-key="AutoCalibrationPeriod" min="10" step="1">
+        <p class="readout" id="r-period"></p>
+        <div class="fielderr" id="e-AutoCalibrationPeriod"></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Focus</h2>
+      <p class="sechint">The lens is set in <em>diopters</em> (1 &divide; metres): bigger numbers focus closer. This page shows the distance in centimetres beside each value so you never have to do that sum.</p>
+
+      <div class="field" id="wrap-LensPosition">
+        <label class="lbl" for="f-LensPosition">Manual focus (diopters)</label>
+        <input type="number" id="f-LensPosition" data-key="LensPosition" min="0" step="0.01">
+        <p class="readout" id="r-lens"></p>
+        <p class="hint">Used when auto-calibrate is off, and as the starting point when it is on. Cameras differ slightly in their own units, so treat this as a per-box value.</p>
+        <div class="fielderr" id="e-LensPosition"></div>
+      </div>
+
+      <div class="field">
+        <label class="lbl">Focus range the autofocus is allowed to settle on</label>
+        <p class="hint" style="margin:0 0 .5rem">A safeguard against the camera locking onto something right in front of the lens. If an autofocus lands outside this range it is rejected and the previous focus is kept. The stock range, 6&nbsp;cm to 250&nbsp;cm, fits every normal Mothbox; tighten it for a box whose distance to the sheet you know.</p>
+        <div class="pair">
+          <div>
+            <label class="lbl" for="f-near_cm">Nearest (cm)</label>
+            <input type="number" id="f-near_cm" min="0.5" step="0.5">
+            <p class="readout" id="r-near"></p>
+          </div>
+          <div>
+            <label class="lbl" for="f-far_cm">Farthest (cm)</label>
+            <input type="number" id="f-far_cm" min="1" step="1" placeholder="blank = no limit">
+            <p class="readout" id="r-far"></p>
+          </div>
+        </div>
+        <div class="fielderr" id="e-range"></div>
+      </div>
+
+      <div class="pair">
+        <div class="field">
+          <label class="lbl" for="f-AfMode">Autofocus mode</label>
+          <select id="f-AfMode" data-key="AfMode">
+            <option value="0">Manual (0)</option>
+            <option value="1">Auto, once (1)</option>
+            <option value="2">Continuous (2)</option>
+          </select>
+          <p class="hint">Manual is normal: the Mothbox runs its own autofocus during calibration and then holds the lens still.</p>
+        </div>
+        <div class="field">
+          <label class="lbl" for="f-AfRange">Autofocus range</label>
+          <select id="f-AfRange" data-key="AfRange">
+            <option value="0">Normal (0)</option>
+            <option value="1">Macro (1)</option>
+            <option value="2">Full (2)</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label class="lbl" for="f-AfSpeed">Autofocus speed</label>
+        <select id="f-AfSpeed" data-key="AfSpeed">
+          <option value="0">Normal (0)</option>
+          <option value="1">Fast (1)</option>
+        </select>
+      </div>
+    </section>
+
+    <section>
+      <h2>Exposure</h2>
+      <p class="sechint">Photos use a fixed, very short exposure so a passing insect does not smear. Brightness comes from gain and the flash, not from a longer shutter.</p>
+
+      <div class="pair">
+        <div class="field">
+          <label class="lbl" for="f-ExposureTime">Exposure time (&micro;s)</label>
+          <input type="number" id="f-ExposureTime" data-key="ExposureTime" min="1" step="1">
+          <p class="readout" id="r-exp"></p>
+          <p class="hint">The sensor has a floor at full resolution (about 870&nbsp;&micro;s on the OwlSight at the 456&nbsp;MHz link, 1119 at 360). Anything lower is clamped to it, and the real value is written into each photo&rsquo;s EXIF.</p>
+          <div class="fielderr" id="e-ExposureTime"></div>
+        </div>
+        <div class="field">
+          <label class="lbl" for="f-AnalogueGain">Analogue gain</label>
+          <input type="number" id="f-AnalogueGain" data-key="AnalogueGain" min="1" max="16" step="0.05">
+          <p class="hint">1 to 16. Higher is brighter and noisier. Auto-calibrate overrides this when it is on.</p>
+          <div class="fielderr" id="e-AnalogueGain"></div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="lbl" for="f-ExposureValue">Exposure compensation</label>
+        <input type="number" id="f-ExposureValue" data-key="ExposureValue" min="-8" max="8" step="0.1">
+        <p class="hint">Nudges the auto-exposure used during calibration. 0 is neutral; positive is brighter. &minus;8 to +8.</p>
+        <div class="fielderr" id="e-ExposureValue"></div>
+      </div>
+
+      <div class="field">
+        <label class="lbl">Auto white balance</label>
+        <div class="seg" id="f-AwbEnable" data-key="AwbEnable"></div>
+        <p class="hint">Off is normal: the Mothbox locks the colour gains for its white LEDs so every photo matches.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Image</h2>
+
+      <div class="field">
+        <label class="lbl" for="f-ImageFileType">File type</label>
+        <select id="f-ImageFileType" data-key="ImageFileType">
+          <option value="0">JPEG (0) &mdash; recommended</option>
+          <option value="1">PNG (1) &mdash; no compression, much larger, slow to save</option>
+          <option value="2">BMP (2) &mdash; huge, fast to save</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label class="lbl">Flip the image vertically</label>
+        <div class="seg" id="f-VerticalFlip" data-key="VerticalFlip"></div>
+        <p class="hint">Auto is right for every box: the firmware flips on a DIY (camera mounted upside-down) and not on a Pro. Only force it if a photo comes out the wrong way up.</p>
+      </div>
+
+      <div class="pair">
+        <div class="field">
+          <label class="lbl" for="f-HDR">HDR bracketing (photos per shot)</label>
+          <input type="number" id="f-HDR" data-key="HDR" min="0" step="1">
+          <p class="hint">0 is off. 3 or more takes that many photos at different exposures. 1 and 2 also mean off.</p>
+          <div class="fielderr" id="e-HDR"></div>
+        </div>
+        <div class="field" id="wrap-HDR_width">
+          <label class="lbl" for="f-HDR_width">HDR exposure step (&micro;s)</label>
+          <input type="number" id="f-HDR_width" data-key="HDR_width" min="0" step="100">
+          <p class="hint">How far each bracketed photo shifts from the middle exposure. Ignored unless HDR is on.</p>
+          <div class="fielderr" id="e-HDR_width"></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>What each photo will do</h2>
+      <div class="stats" id="stats"></div>
+    </section>
+
+    <section id="sec-other" hidden>
+      <h2>Other settings in this file</h2>
+      <p class="sechint">Settings this editor does not have a special control for. They are kept exactly as they were unless you change them here.</p>
+      <div id="otherfields"></div>
+    </section>
+
+    <section>
+      <h2>The file you are about to save</h2>
+      <p class="sechint">This is the exact text that gets written. Comments and row order from your original file are preserved.</p>
+      <pre id="preview"></pre>
+    </section>
+
+    <section>
+      <h2>Two things that can make Mothboxes not work</h2>
+      <ul class="tips">
+        <li><strong>Don&rsquo;t open the CSV on the card with Excel, Numbers, Vim, Sublime or Notepad++.</strong> They can leave swap files and backups on the tiny boot partition and rewrite the file with different encodings and line endings. Use this page instead.</li>
+        <li><strong>Always eject the card properly</strong> and wait until the computer says it is safe before pulling it out. Yanking it mid-write corrupts the boot partition, and then the Pi just blinks at you.</li>
+      </ul>
+    </section>
+
+  </div>
+</main>
+
+<script>
+"use strict";
+
+const FILE_NAME = "camera_settings.csv";
+
+/* Defaults: used when starting from scratch and to fill in rows missing from a loaded file. */
+const DEFAULTS = [
+  ["AutoCalibration", "1", "0 is off and using only manual controls   1 will enable autocalibration to happen if the Calibration Period has elapsed"],
+  ["AutoCalibrationPeriod", "600", " Seconds since last autocalibration to run a new calibration"],
+  ["ImageFileType", "0", " 0 is jpeg   1 is png (larger file size and much slower to save but no compression)  2 is BMP HUGE file but very fast to save"],
+  ["VerticalFlip", "auto", " auto flips for the DIY enclosure (camera mounted upside-down) and not for the Pro. Or force it: 0 is no flip  1 is flip"],
+  ["AfMode", "0", " AfModeManual = 0 AfModeAuto = 1 AfModeContinuous = 2"],
+  ["AfSpeed", "1", "AfSpeedNormal = 0 AfSpeedFast = 1 "],
+  ["AfRange", "1", "AfRangeNormal = 0 AfRangeMacro = 1 AfRangeFull = 2 "],
+  ["AwbEnable", "0", ""],
+  ["LensPosition", "6.461458683013916", " NOTE not all cameras are the same! they are slightly off in their own units   unit in diopters 1/meters"],
+  ["ExposureValue", "0.6", "adjusts auto exposure algorithm 0 is nomal positive is brighter Floating point number between -8.0 and 8.0"],
+  ["ExposureTime", "499", "units are microseconds"],
+  ["AnalogueGain", "1.1875", "AnalogueGain value between 1.0 and 16.0."],
+  ["HDR", "0", "0 is off 3 is HDR with 3 photos -  1-2 is also off  3 and up is that many photos to take"],
+  ["HDR_width", "7000", " duration of exposure to shift on both sides doesnt do anything if HDR is not enabled"],
+  ["onlyflash", "0", "switch to using only the flash for the attraction by setting to 1 (not currently implemented)"],
+  ["LensPositionMin", "0.4", " farthest focus the autofocus may settle on. Units are diopters = 1 / metres so 0.4 is 2.5 m away. A focus farther than this is rejected and the previous one kept"],
+  ["LensPositionMax", "16.7", " nearest focus the autofocus may settle on. 16.7 is 6 cm away (100 / cm). A focus nearer than this is rejected -- e.g. something sitting right in front of the lens. Lower it to tighten"]
+];
+
+/* Settings with a purpose-built control above. Anything else lands in "Other settings". */
+const HANDLED = new Set(["AutoCalibration", "AutoCalibrationPeriod", "ImageFileType", "VerticalFlip",
+  "AfMode", "AfSpeed", "AfRange", "AwbEnable", "LensPosition", "ExposureValue", "ExposureTime",
+  "AnalogueGain", "HDR", "HDR_width", "LensPositionMin", "LensPositionMax"]);
+
+let rows = [];
+let header = ["SETTING", "VALUE", "DETAILS"];
+let colSetting = 0, colValue = 1, colDetails = 2;
+let loadedName = FILE_NAME;
+let touched = new Set();
+
+const $ = (id) => document.getElementById(id);
+
+/* ---------------- generic CSV + file plumbing, identical to the settings editor ---------------- */
+function parseCSV(text) {
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);   // strip BOM
+  const out = [];
+  let row = [], field = "", i = 0, inQuotes = false;
+  while (i < text.length) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
+        inQuotes = false; i++; continue;
+      }
+      field += c; i++; continue;
+    }
+    if (c === '"' && field.trim() === "") { inQuotes = true; field = ""; i++; continue; }
+    if (c === ",") { row.push(field); field = ""; i++; continue; }
+    if (c === "\r") { i++; continue; }
+    if (c === "\n") { row.push(field); out.push(row); row = []; field = ""; i++; continue; }
+    field += c; i++;
+  }
+  row.push(field);
+  out.push(row);
+  /* drop trailing all-empty rows */
+  while (out.length && out[out.length - 1].every((v) => v.trim() === "")) out.pop();
+  return out;
+}
+
+function csvEscape(v) {
+  v = String(v);
+  return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+}
+
+function findRow(key) {
+  const k = key.toLowerCase();
+  return rows.find((r) => (r.cells[colSetting] || "").trim().toLowerCase() === k);
+}
+
+function getVal(key, fallback) {
+  const r = findRow(key);
+  if (!r) {
+    const d = DEFAULTS.find((d) => d[0].toLowerCase() === key.toLowerCase());
+    return d ? d[1].trim() : (fallback !== undefined ? fallback : "");
+  }
+  return (r.cells[colValue] || "").trim();
+}
+
+function setVal(key, value) {
+  const r = findRow(key);
+  if (r) { r.cells[colValue] = String(value); return; }
+  /* Not in the loaded file: add it, using the stock comment if we know one. */
+  const d = DEFAULTS.find((d) => d[0].toLowerCase() === key.toLowerCase());
+  const cells = [];
+  cells[colSetting] = d ? d[0] : key;
+  cells[colValue] = String(value);
+  if (colDetails >= 0) cells[colDetails] = d ? d[2] : "";
+  for (let i = 0; i < cells.length; i++) if (cells[i] === undefined) cells[i] = "";
+  rows.push({ cells });
+  touched.add(key);
+}
+
+function hasRow(key) { return !!findRow(key); }
+
+/* ------------------------------------------------------------------ *
+ * Loading
+ * ------------------------------------------------------------------ */
+function loadDefaults() {
+  header = ["SETTING", "VALUE", "DETAILS"];
+  colSetting = 0; colValue = 1; colDetails = 2;
+  rows = DEFAULTS.map((d) => ({ cells: [d[0], d[1], d[2]] }));
+  loadedName = "mothbox_settings.csv";
+  touched = new Set();
+  $("loaderrors").innerHTML = "";
+  setStatus("Started from the stock settings.", true);
+  showForm();
+}
+
+function fail(html) {
+  $("loaderrors").innerHTML = '<div class="msg err">' + html + "</div>";
+  setStatus("Could not read that file.");
+}
+
+function setStatus(msg, good) {
+  const el = $("status");
+  el.textContent = msg;
+  el.className = "status" + (good ? " good" : "");
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+function buildOtherFields() {
+  const box = $("otherfields");
+  box.innerHTML = "";
+  let n = 0;
+  rows.forEach((r, idx) => {
+    const key = (r.cells[colSetting] || "").trim();
+    if (!key || HANDLED.has(key)) return;
+    n++;
+    const wrap = document.createElement("div");
+    wrap.className = "field";
+    const details = (r.cells[colDetails] || "").trim();
+    wrap.innerHTML = '<label class="lbl" for="other-' + idx + '">' + escapeHtml(key) + "</label>";
+    const inp = document.createElement("input");
+    inp.type = "text";
+    inp.id = "other-" + idx;
+    inp.value = (r.cells[colValue] || "").trim();
+    inp.addEventListener("input", () => { r.cells[colValue] = inp.value; refresh(inp); });
+    wrap.appendChild(inp);
+    if (details) {
+      const p = document.createElement("p");
+      p.className = "hint";
+      p.textContent = details;
+      wrap.appendChild(p);
+    }
+    box.appendChild(wrap);
+  });
+  $("sec-other").hidden = n === 0;
+}
+
+function numOf(v) {
+  const s = String(v).trim();
+  if (s === "" || !/^-?\d*\.?\d+$/.test(s)) return NaN;
+  return parseFloat(s);
+}
+
+function setFieldEnabled(wrap, on) {
+  if (!wrap) return;
+  wrap.style.opacity = on ? "1" : ".55";
+  wrap.querySelectorAll("input, button").forEach((el) => { el.disabled = !on; });
+}
+
+function setInput(id, value, skipEl) {
+  const el = $(id);
+  if (!el || el === skipEl || el === document.activeElement) return;
+  if (el.value !== value) el.value = value;
+}
+
+function fieldErr(id, msg, collector) {
+  const el = $(id);
+  if (el) el.textContent = msg || "";
+  if (msg && collector) collector.push(msg);
+}
+
+function serialize() {
+  const lines = [];
+  lines.push(header.map(csvEscape).join(","));
+  rows.forEach((r) => {
+    const cells = r.cells.slice();
+    while (cells.length && cells[cells.length - 1] === "") cells.pop();
+    lines.push(cells.map(csvEscape).join(","));
+  });
+  return lines.join("\n") + "\n";
+}
+
+function showForm() {
+  $("form").hidden = false;
+  $("drop").hidden = true;
+  refresh();
+}
+
+async function useHandle(h) {
+  if (await h.requestPermission({ mode: "readwrite" }) !== "granted") return false;
+  const f = await h.getFile();
+  fileHandle = h;
+  loadText(await f.text(), f.name);
+  return true;
+}
+
+function readFile(f) {
+  const r = new FileReader();
+  r.onload = () => loadText(String(r.result), f.name);
+  r.onerror = () => fail("Could not read that file.");
+  r.readAsText(f, "utf-8");
+}
+
+
+function loadDefaults() {
+  header = ["SETTING", "VALUE", "DETAILS"];
+  colSetting = 0; colValue = 1; colDetails = 2;
+  rows = DEFAULTS.map((d) => ({ cells: [d[0], d[1], d[2]] }));
+  loadedName = FILE_NAME;
+  touched = new Set();
+  $("loaderrors").innerHTML = "";
+  setStatus("Started from the stock camera settings.", true);
+  showForm();
+}
+
+function loadText(text, filename) {
+  const table = parseCSV(text);
+  const problems = [];
+  if (!table.length) { fail("That file is empty."); return; }
+
+  const head = table[0].map((h) => h.replace(/^﻿/, "").trim().toUpperCase());
+  colSetting = head.indexOf("SETTING");
+  colValue = head.indexOf("VALUE");
+  colDetails = head.indexOf("DETAILS");
+
+  let body;
+  if (colSetting === -1 || colValue === -1) {
+    const known = new Set(DEFAULTS.map((d) => d[0].toLowerCase()));
+    if (table[0].length >= 2 && known.has((table[0][0] || "").trim().toLowerCase())) {
+      problems.push("This file has no <code>SETTING,VALUE,DETAILS</code> header row. One has been added back for you.");
+      header = ["SETTING", "VALUE", "DETAILS"];
+      colSetting = 0; colValue = 1; colDetails = 2;
+      body = table;
+    } else {
+      fail("This does not look like a camera_settings.csv &mdash; the header row should be <code>SETTING,VALUE,DETAILS</code>, but it reads <code>" +
+        escapeHtml(table[0].join(",")).slice(0, 120) + "</code>. (The schedule file, mothbox_settings.csv, has its own editor.)");
+      return;
+    }
+  } else {
+    header = table[0].map((h) => h.replace(/^﻿/, "").trim());
+    body = table.slice(1);
+  }
+  if (colDetails === -1) colDetails = Math.max(colSetting, colValue) + 1;
+
+  rows = body
+    .filter((cells) => cells.some((v) => v.trim() !== ""))
+    .map((cells) => { const c = cells.slice(); while (c.length <= colDetails) c.push(""); return { cells: c }; });
+
+  /* Is this actually the other settings file? */
+  const keys = new Set(rows.map((r) => (r.cells[colSetting] || "").trim()));
+  if (keys.has("timezone") || keys.has("weekday") || keys.has("bat_voltage")) {
+    fail("That is <code>mothbox_settings.csv</code> (schedule, timezone, battery). Open it in <code>mothbox_settings_editor.html</code> instead, and drop <code>camera_settings.csv</code> here.");
+    return;
+  }
+
+  if (/\r\n/.test(text)) problems.push("The file had Windows line endings; the saved copy uses plain Unix ones.");
+  if (text.charCodeAt(0) === 0xFEFF) problems.push("The file started with a UTF-8 byte-order mark (a spreadsheet did that); it has been removed.");
+  if (/[^\x09\x0A\x0D\x20-\x7E]/.test(text)) problems.push("The file contains non-plain-ASCII characters &mdash; usually curly quotes or a stray dash pasted from a document. Check the values below.");
+
+  const seen = new Set();
+  rows.forEach((r) => {
+    const k = (r.cells[colSetting] || "").trim();
+    if (!k) return;
+    if (seen.has(k.toLowerCase())) problems.push("Setting <code>" + escapeHtml(k) + "</code> appears more than once. The Mothbox uses the last one; both are kept here, and editing changes the first.");
+    seen.add(k.toLowerCase());
+  });
+  const missing = DEFAULTS.map((d) => d[0]).filter((k) => !seen.has(k.toLowerCase()));
+  if (missing.length) problems.push("Not in this file, so the Mothbox falls back to its built-in defaults: <code>" + missing.map(escapeHtml).join("</code>, <code>") + "</code>. Edit any of them here to add them to the file.");
+
+  loadedName = filename || FILE_NAME;
+  touched = new Set();
+  $("loaderrors").innerHTML = problems.length
+    ? '<div class="msg warn"><strong>Notes about the file you opened:</strong><ul style="margin:.4rem 0 0;padding-left:1.1rem">' + problems.map((p) => "<li>" + p + "</li>").join("") + "</ul></div>"
+    : "";
+  setStatus("Loaded " + loadedName + " (" + rows.length + " settings).", true);
+  showForm();
+}
+
+/* ---------------- units ---------------- */
+const cmFromDiop = (d) => { d = numOf(d); return (isNaN(d) || d <= 0) ? NaN : 100 / d; };
+const diopFromCm = (cm) => { cm = numOf(cm); return (isNaN(cm) || cm <= 0) ? NaN : 100 / cm; };
+const fmtCm = (cm) => isNaN(cm) ? "" : (cm >= 100 ? (Math.round(cm / 10) * 10 >= 1000 ? (cm / 100).toFixed(1) + " m" : Math.round(cm) + " cm") : (Math.round(cm * 10) / 10) + " cm");
+const fmtCmInput = (cm) => isNaN(cm) ? "" : String(Math.round(cm * 10) / 10);
+
+/* ---------------- controls ---------------- */
+function seg(id, key, options) {
+  const box = $(id);
+  box.innerHTML = "";
+  options.forEach(([val, label]) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = label; b.dataset.val = val;
+    b.addEventListener("click", () => { setVal(key, val); refresh(); });
+    box.appendChild(b);
+  });
+}
+function segRefresh(id, current, normalise) {
+  const cur = normalise(current);
+  $(id).querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.val === cur)));
+}
+const yesNo = (v) => (/^(1|true|yes|on)$/i.test(String(v).trim()) ? "1" : "0");
+const flipNorm = (v) => { const s = String(v).trim().toLowerCase(); return (s === "" || s === "auto") ? "auto" : (s === "1" ? "1" : "0"); };
+
+function buildStaticControls() {
+  seg("f-AutoCalibration", "AutoCalibration", [["1", "Yes"], ["0", "No"]]);
+  seg("f-AwbEnable", "AwbEnable", [["1", "Yes"], ["0", "No"]]);
+  seg("f-VerticalFlip", "VerticalFlip", [["auto", "Auto"], ["0", "No"], ["1", "Yes"]]);
+
+  ["AutoCalibrationPeriod", "LensPosition", "ExposureTime", "AnalogueGain", "ExposureValue", "HDR", "HDR_width",
+   "ImageFileType", "AfMode", "AfSpeed", "AfRange"].forEach((key) => {
+    const el = $("f-" + key);
+    el.addEventListener("input", () => { setVal(key, el.value); refresh(el); });
+    el.addEventListener("change", () => { setVal(key, el.value); refresh(el); });
+  });
+
+  /* centimetre inputs write diopters into the file */
+  $("f-near_cm").addEventListener("input", () => {
+    const d = diopFromCm($("f-near_cm").value);
+    setVal("LensPositionMax", isNaN(d) ? ($("f-near_cm").value === "" ? "99" : $("f-near_cm").value) : (Math.round(d * 100) / 100).toString());
+    refresh($("f-near_cm"));
+  });
+  $("f-far_cm").addEventListener("input", () => {
+    const d = diopFromCm($("f-far_cm").value);
+    setVal("LensPositionMin", isNaN(d) ? ($("f-far_cm").value === "" ? "0" : $("f-far_cm").value) : (Math.round(d * 100) / 100).toString());
+    refresh($("f-far_cm"));
+  });
+}
+
+/* ---------------- refresh: push state into widgets, validate, preview ---------------- */
+let refreshing = false;
+function refresh(skipEl) {
+  if (refreshing) return;
+  refreshing = true;
+  try { doRefresh(skipEl); } finally { refreshing = false; }
+}
+
+function doRefresh(skipEl) {
+  const errors = [];
+
+  segRefresh("f-AutoCalibration", getVal("AutoCalibration"), yesNo);
+  segRefresh("f-AwbEnable", getVal("AwbEnable"), yesNo);
+  segRefresh("f-VerticalFlip", getVal("VerticalFlip"), flipNorm);
+  const autoCal = yesNo(getVal("AutoCalibration")) === "1";
+
+  ["AutoCalibrationPeriod", "LensPosition", "ExposureTime", "AnalogueGain", "ExposureValue", "HDR", "HDR_width"]
+    .forEach((k) => setInput("f-" + k, getVal(k), skipEl));
+  ["ImageFileType", "AfMode", "AfSpeed", "AfRange"].forEach((k) => {
+    const el = $("f-" + k); const v = String(getVal(k)).trim();
+    if (el !== skipEl && el.value !== v) el.value = v;
+    if (el.value !== v) errors.push(k + " has a value this editor does not know (" + v + ").");
+  });
+
+  /* calibration */
+  setFieldEnabled($("wrap-AutoCalibrationPeriod"), autoCal);
+  const period = numOf(getVal("AutoCalibrationPeriod"));
+  $("r-period").textContent = isNaN(period) ? "" : "= " + (period / 60).toFixed(1) + " minutes";
+  fieldErr("e-AutoCalibrationPeriod", (() => {
+    if (isNaN(period) || !Number.isInteger(period)) return "Enter a whole number of seconds.";
+    if (period < 10) return "Calibration takes about 10 s itself; anything shorter would never stop calibrating.";
+    return "";
+  })(), autoCal ? errors : null);
+
+  /* focus */
+  setFieldEnabled($("wrap-LensPosition"), !autoCal);
+  const lens = numOf(getVal("LensPosition"));
+  $("r-lens").innerHTML = isNaN(lens) ? "" : (lens <= 0 ? "focused at <strong>infinity</strong>" : "focused about <strong>" + fmtCm(cmFromDiop(lens)) + "</strong> from the lens");
+  fieldErr("e-LensPosition", (isNaN(lens) || lens < 0) ? "Enter a number of diopters, 0 or more." : "", autoCal ? null : errors);
+
+  const nearD = numOf(getVal("LensPositionMax")), farD = numOf(getVal("LensPositionMin"));
+  const nearCm = cmFromDiop(nearD), farCm = cmFromDiop(farD);
+  setInput("f-near_cm", fmtCmInput(nearCm), skipEl);
+  setInput("f-far_cm", fmtCmInput(farCm), skipEl);
+  $("r-near").textContent = isNaN(nearD) ? "" : "saved as LensPositionMax = " + nearD + (nearD >= 99 ? " (no limit)" : "");
+  $("r-far").textContent = isNaN(farD) ? "" : "saved as LensPositionMin = " + farD + (farD <= 0 ? " (no limit)" : "");
+  fieldErr("e-range", (() => {
+    if (isNaN(nearD) || isNaN(farD)) return "Both limits must be numbers.";
+    if (!isNaN(nearCm) && !isNaN(farCm) && nearCm > farCm) return "The nearest distance has to be closer than the farthest one.";
+    return "";
+  })(), errors);
+
+  /* exposure */
+  const exp = numOf(getVal("ExposureTime"));
+  $("r-exp").textContent = isNaN(exp) || exp <= 0 ? "" : "= 1/" + Math.round(1000000 / exp) + " s";
+  fieldErr("e-ExposureTime", (isNaN(exp) || !Number.isInteger(exp) || exp < 1) ? "Enter a whole number of microseconds, 1 or more." : "", errors);
+  const gain = numOf(getVal("AnalogueGain"));
+  fieldErr("e-AnalogueGain", (isNaN(gain) || gain < 1 || gain > 16) ? "Gain must be between 1 and 16." : "", errors);
+  const ev = numOf(getVal("ExposureValue"));
+  fieldErr("e-ExposureValue", (isNaN(ev) || ev < -8 || ev > 8) ? "Must be between -8 and 8." : "", errors);
+
+  /* image */
+  const hdr = numOf(getVal("HDR"));
+  const hdrOn = !isNaN(hdr) && hdr >= 3;
+  fieldErr("e-HDR", (isNaN(hdr) || !Number.isInteger(hdr) || hdr < 0) ? "Enter 0 for off, or 3 or more photos." : (hdr === 1 || hdr === 2 ? "1 and 2 behave as off; use 0 to be explicit." : ""), (isNaN(hdr) || hdr < 0) ? errors : null);
+  setFieldEnabled($("wrap-HDR_width"), hdrOn);
+  const hw = numOf(getVal("HDR_width"));
+  fieldErr("e-HDR_width", (isNaN(hw) || hw < 0) ? "Enter a number of microseconds, 0 or more." : "", hdrOn ? errors : null);
+
+  /* summary */
+  const shots = hdrOn ? hdr : 1;
+  const focusTxt = autoCal ? "autofocus, re-run every " + (isNaN(period) ? "?" : (period / 60).toFixed(0)) + " min" : (isNaN(lens) ? "manual" : "manual, " + fmtCm(cmFromDiop(lens)));
+  const stats = [
+    [isNaN(exp) ? "—" : exp + " µs", "exposure"],
+    [autoCal ? "auto" : (isNaN(gain) ? "—" : gain + "×"), "gain"],
+    [shots, hdrOn ? "bracketed photos" : "photo per shot"],
+    [focusTxt, "focus"],
+    [{ "0": "JPEG", "1": "PNG", "2": "BMP" }[String(getVal("ImageFileType")).trim()] || "?", "file type"],
+    [{ auto: "auto", "0": "no", "1": "yes" }[flipNorm(getVal("VerticalFlip"))], "flipped"]
+  ];
+  $("stats").innerHTML = stats.map(([v, l]) => '<div class="stat"><strong>' + escapeHtml(String(v)) + "</strong><span>" + l + "</span></div>").join("");
+
+  buildOtherFields();
+
+  const text = serialize();
+  $("preview").textContent = text;
+  const btn = $("btn-save");
+  btn.disabled = errors.length > 0;
+  btn.className = errors.length ? "" : "primary";
+  btn.textContent = errors.length
+    ? "Fix " + errors.length + " problem" + (errors.length > 1 ? "s" : "") + " to save"
+    : (fileHandle ? "Save into " + loadedName : "Save " + FILE_NAME);
+}
+
+/* ---------------- wiring (same flow as the settings editor) ---------------- */
+buildStaticControls();
+
+let fileHandle = null;
+const canHandle = typeof window.FileSystemFileHandle === "function" &&
+                  typeof DataTransferItem !== "undefined" &&
+                  typeof DataTransferItem.prototype.getAsFileSystemHandle === "function";
+
+async function startup() {
+  try {
+    const r = await fetch(FILE_NAME, { cache: "no-store" });
+    if (r.ok) { loadText(await r.text(), FILE_NAME); return; }
+  } catch (e) { /* opened straight off the disk */ }
+  setStatus("Drag " + FILE_NAME + " onto this page to edit it.");
+  $("dropwhy").textContent = canHandle
+    ? "Opened straight from the card, a browser will not let this page read the file next to it until you point at it — dragging it over is that one step. Everything after that, including saving, goes straight back into the same file."
+    : "This browser cannot write files directly: it will put the edited copy in your downloads for you to drop onto the card. Chrome or Edge save in place instead.";
+}
+
+$("btn-defaults").addEventListener("click", () => {
+  if ($("form").hidden || confirm("Throw away the settings on screen and start from the stock ones?")) loadDefaults();
+});
+
+$("btn-save").addEventListener("click", async () => {
+  const text = serialize();
+  if (fileHandle) {
+    try {
+      if (await fileHandle.requestPermission({ mode: "readwrite" }) !== "granted") throw new Error("permission refused");
+      const w = await fileHandle.createWritable();
+      await w.write(text);
+      await w.close();
+      setStatus("Saved into " + loadedName + " at " + new Date().toLocaleTimeString() + ". Eject the card properly before pulling it out.", true);
+      return;
+    } catch (err) {
+      setStatus("Could not write the file directly (" + (err && err.message ? err.message : "unknown") + ") — saving a copy instead.");
+    }
+  }
+  if (location.protocol.startsWith("http")) {
+    try {
+      const r = await fetch(FILE_NAME, { method: "PUT", body: text });
+      if (r.ok) { setStatus("Saved into " + FILE_NAME + ".", true); return; }
+    } catch (e) { /* fall through */ }
+  }
+  const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = FILE_NAME;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  setStatus("Saved to your downloads — copy it onto the card, replacing the old file, then eject the card properly.", true);
+});
+
+const drop = $("drop");
+["dragenter", "dragover"].forEach((ev) => document.addEventListener(ev, (e) => { e.preventDefault(); drop.hidden = false; drop.classList.add("hot"); }));
+["dragleave", "drop"].forEach((ev) => document.addEventListener(ev, (e) => {
+  e.preventDefault();
+  if (ev === "dragleave" && e.relatedTarget) return;
+  drop.classList.remove("hot");
+  if (!$("form").hidden) drop.hidden = true;
+}));
+document.addEventListener("drop", async (e) => {
+  const dt = e.dataTransfer;
+  if (!dt) return;
+  const item = dt.items && dt.items[0];
+  const plainFile = dt.files && dt.files[0];
+  const handlePromise = (canHandle && item && item.kind === "file") ? item.getAsFileSystemHandle() : null;
+  if (handlePromise) {
+    try {
+      const h = await handlePromise;
+      if (h && h.kind === "file" && await useHandle(h)) return;
+    } catch (err) { /* fall back */ }
+  }
+  if (plainFile) { fileHandle = null; readFile(plainFile); }
+});
+
+startup();
+</script>
+</body>
+</html>

@@ -17,11 +17,19 @@ Arducam 64MP OwlSight camera; they differ in everything wired to the GPIO:
 
 How a board is identified
 -------------------------
-The PCA9555 expanders at I2C 0x20 / 0x21 / 0x22 exist only on the Pro PCB,
-so finding any of them means "pro". They are powered from the Pro's switched
-3.3 V sensor rail (GPIO 27, active LOW), so detection raises that rail first,
-probes, then puts the rail back. On a DIY board GPIO 27 is unconnected and the
-probe finds nothing -> "diy".
+A Pro PCB carries five I2C chips a DIY never has: three PCA9555 switch
+expanders (0x20-0x27), a light sensor (LTR-303 @0x29 on old boards,
+LTR-F216A @0x53 on new), and an INA219 @0x40. Finding ANY of them means
+"pro". Detection raises the Pro's switched 3.3 V sensor rail (GPIO 27, active
+LOW), probes at 0.2 / 1.0 / 2.5 s until evidence appears, then puts the rail
+back. On a DIY board GPIO 27 is unconnected and the bus holds nothing but,
+optionally, an INA260 (told apart from the INA219 by its TI id) -> "diy".
+
+Board revisions differ in what the rail switches (measured with
+scripts/i2c_survey.py, Sept 2026):
+    old Pro PCB   expanders ALWAYS powered; light sensor + INA219 behind the rail
+    new Pro PCB   all five chips behind the rail
+Never assume a chip needs the rail, or that it doesn't.
 
 Scheduler.py runs detect_hardware() at every boot and caches the answer in
 <controls>/hardware.txt; every other script just reads the cache, so there is
@@ -65,7 +73,11 @@ DIY = dict(
 )
 
 I2C_BUS        = 1
-PCA9555_ADDRS  = (0x20, 0x21, 0x22)
+PCA9555_ADDRS  = (0x20, 0x21, 0x22)          # where the switch map expects them
+PCA9555_RANGE  = tuple(range(0x20, 0x28))    # every address a PCA9555 can be strapped to
+# After raising the sensor rail, probe at each of these delays (seconds,
+# cumulative) until Pro evidence appears. Older PCBs bring the rail up slower.
+SETTLE_STEPS   = (0.2, 1.0, 2.5)
 LTR303_ADDR    = 0x29              # light sensor on old-revision Pro PCBs   (part id reg 0x86 == 0xA0)
 LTRF216A_ADDR  = 0x53              # light sensor on new-revision Pro PCBs   (part id reg 0x06 == 0xB1)
 INA_ADDR       = 0x40
@@ -239,22 +251,47 @@ def _ina260_present(bus):
         return False
 
 
+def _pro_evidence(bus):
+    """
+    One probe pass. Returns (found_addresses, evidence) where evidence lists the
+    Pro-only chips that answered. ANY of them is proof of a Pro PCB -- a DIY
+    build has nothing on I2C except, optionally, an INA260 at 0x40.
+    """
+    found = [a for a in (*PCA9555_RANGE, LTR303_ADDR, LTRF216A_ADDR, INA_ADDR) if _probe(bus, a)]
+    evidence = []
+    expanders = [a for a in found if a in PCA9555_RANGE]
+    if expanders:
+        evidence.append("expanders@" + ",".join(hex(a) for a in expanders))
+    light = _light_sensor(bus)
+    if light != "none":
+        evidence.append(light)
+    if INA_ADDR in found and not _ina260_present(bus):
+        evidence.append("ina219")          # INA219 has no TI id register; INA260 does
+    return found, evidence, light
+
+
 def detect_hardware(write_cache=True, verbose=True):
     """
     Work out which Mothbox this is. Returns a dict:
       hardware       'pro' | 'diy'
-      detected_by    'settings' | 'i2c-expanders' | 'i2c-none' | 'fallback-...'
+      detected_by    'settings' | 'i2c:<evidence>' | 'i2c-none' | 'fallback-...'
       i2c_found      list of addresses that answered
       voltage_sensor 'ina219' | 'ina260' | 'none'
       light_sensor   'ltr-f216a' (new PCBs) | 'ltr-303' (old PCBs) | 'none'
+      settle_s       how long after raising the rail the evidence appeared
+
+    A Pro PCB carries five I2C chips (three switch expanders, a light sensor,
+    an INA219); finding ANY of them means Pro. The probe is repeated at
+    SETTLE_STEPS after the sensor rail is raised, because older boards bring
+    that rail up slowly. Only a bus with nothing but an (optional) INA260 is
+    called DIY. If I2C cannot be probed at all, DEFAULT_HARDWARE (pro) wins.
     """
     info = {"hardware": DEFAULT_HARDWARE, "detected_by": "fallback-default",
-            "i2c_found": [], "voltage_sensor": "none", "light_sensor": "none"}
+            "i2c_found": [], "voltage_sensor": "none", "light_sensor": "none",
+            "settle_s": None}
 
     forced = settings_override()
 
-    # Probe I2C with the Pro sensor rail up. On a DIY board GPIO 27 is
-    # unconnected, so driving it is harmless there.
     rail_was_on = None
     bus = None
     try:
@@ -268,22 +305,27 @@ def detect_hardware(write_cache=True, verbose=True):
                 rail_was_on = bool(st and st[0] == "op" and st[1] == "lo")
                 if not rail_was_on:
                     _out(PRO["RAIL_3V3"], False)     # active LOW -> on
-                    time.sleep(0.2)
             except Exception:
                 pass
-            found = [a for a in (*PCA9555_ADDRS, LTR303_ADDR, LTRF216A_ADDR, INA_ADDR) if _probe(bus, a)]
+
+            found, evidence, light = [], [], "none"
+            elapsed = 0.0
+            for step in (SETTLE_STEPS if not rail_was_on else SETTLE_STEPS[:1]):
+                if step > elapsed:
+                    time.sleep(step - elapsed)
+                    elapsed = step
+                found, evidence, light = _pro_evidence(bus)
+                if evidence:
+                    break
             info["i2c_found"] = found
-            expanders = [a for a in found if a in PCA9555_ADDRS]
-            if expanders:
-                info["hardware"], info["detected_by"] = "pro", "i2c-expanders"
+            info["light_sensor"] = light
+            info["settle_s"] = elapsed
+            if evidence:
+                info["hardware"], info["detected_by"] = "pro", "i2c:" + "+".join(evidence)
             else:
                 info["hardware"], info["detected_by"] = "diy", "i2c-none"
-            info["light_sensor"] = _light_sensor(bus)
             if INA_ADDR in found:
-                if _ina260_present(bus):
-                    info["voltage_sensor"] = "ina260"
-                else:
-                    info["voltage_sensor"] = "ina219" if info["hardware"] == "pro" else "ina260"
+                info["voltage_sensor"] = "ina260" if _ina260_present(bus) else "ina219"
         finally:
             try:
                 bus.close()
@@ -302,7 +344,8 @@ def detect_hardware(write_cache=True, verbose=True):
     if verbose:
         print(f"[mothbox_hw] hardware={info['hardware']} ({info['detected_by']}) "
               f"i2c={[hex(a) for a in info['i2c_found']] or 'none'} "
-              f"voltage_sensor={info['voltage_sensor']} light_sensor={info['light_sensor']}")
+              f"voltage_sensor={info['voltage_sensor']} light_sensor={info['light_sensor']} "
+              f"settle={info['settle_s']}s")
     if write_cache:
         try:
             _write_kv(HARDWARE_FILE, {
@@ -310,6 +353,7 @@ def detect_hardware(write_cache=True, verbose=True):
                 "i2c_found": ",".join(hex(a) for a in info["i2c_found"]),
                 "voltage_sensor": info["voltage_sensor"],
                 "light_sensor": info["light_sensor"],
+                "settle_s": info["settle_s"],
                 "detected_at": info["detected_at"],
             })
         except Exception as e:

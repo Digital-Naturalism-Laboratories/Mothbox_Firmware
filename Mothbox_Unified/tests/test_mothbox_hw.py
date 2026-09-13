@@ -53,6 +53,7 @@ def install_fakes(bus=None, smbus_missing=False, pinctrl=None):
         sm = types.ModuleType("smbus2"); sm.SMBus = lambda n: bus; sys.modules["smbus2"] = sm
     sys.modules.pop("mothbox_hw", None)
     hw = importlib.import_module("mothbox_hw")
+    hw.SETTLE_STEPS = (0.0,)          # no real sleeping in tests
     tmp = Path(tempfile.mkdtemp())
     hw.HARDWARE_FILE = tmp / "hardware.txt"; hw.SETTINGS_CSV = tmp / "mothbox_settings.csv"
     runs = []
@@ -82,7 +83,7 @@ def check(name, cond):
 # ---------------------------------------------------------- detection --
 hw, gpio, runs, tmp = install_fakes(FakeBus({0x20,0x21,0x22,0x29,0x40}, {(0x40,0xFE): 0xFFFF}, bytes_={(0x29,0x86): 0xA0}), pinctrl={27: "op dh pn | hi"})
 info = hw.detect_hardware()
-check("pro (old PCB): expanders -> pro / ina219 / LTR-303 light", info["hardware"]=="pro" and info["detected_by"]=="i2c-expanders" and info["voltage_sensor"]=="ina219" and info["light_sensor"]=="ltr-303")
+check("pro (old PCB): expanders -> pro / ina219 / LTR-303 light", info["hardware"]=="pro" and info["detected_by"].startswith("i2c:expanders@") and info["voltage_sensor"]=="ina219" and info["light_sensor"]=="ltr-303")
 check("pro: sensor rail raised (27 LOW) then restored (27 HIGH)", gpio.outs() == [(27,0),(27,1)])
 check("pro: cache written and read back", hw.get_hardware()=="pro" and hw.hardware_info()["voltage_sensor"]=="ina219")
 
@@ -94,6 +95,28 @@ check("pro: something at 0x53 with the wrong part id -> light none, not fooled",
 hw, gpio, runs, tmp = install_fakes(FakeBus(set()))
 info = hw.detect_hardware()
 check("diy: nothing on i2c -> diy / none", info["hardware"]=="diy" and info["detected_by"]=="i2c-none" and info["voltage_sensor"]=="none" and info["light_sensor"]=="none")
+
+# --- the old-PCB regression: expanders silent, but other Pro chips answer ---
+hw, gpio, runs, tmp = install_fakes(FakeBus({0x29,0x40}, {(0x40,0xFE): 0xFFFF}, bytes_={(0x29,0x86): 0xA0}), pinctrl={27: "op dh pn | hi"})
+info = hw.detect_hardware()
+check("old PCB, expanders silent: LTR-303 + INA219 still prove PRO", info["hardware"]=="pro" and "ltr-303" in info["detected_by"] and "ina219" in info["detected_by"] and info["voltage_sensor"]=="ina219")
+hw, gpio, runs, tmp = install_fakes(FakeBus({0x40}, {(0x40,0xFE): 0xFFFF}))
+check("only an INA219 answers -> PRO (a DIY never has one)", hw.detect_hardware()["hardware"]=="pro")
+hw, gpio, runs, tmp = install_fakes(FakeBus({0x25,0x26,0x27}), pinctrl={27: "op dh pn | hi"})
+info = hw.detect_hardware()
+check("expanders strapped to 0x25-0x27 -> still PRO", info["hardware"]=="pro" and "0x25" in info["detected_by"])
+# --- slow rail: nothing at the first probe, chips appear on a later one ---
+class SlowBus(FakeBus):
+    """Nothing answers until the 3rd probe pass -- a rail that takes a while to come up."""
+    def __init__(self, *a, **k): super().__init__(*a, **k); self.passes = 0
+    def _chk(self, a):
+        if a == 0x20: self.passes += 1            # 0x20 is the first address of every pass
+        if self.passes < 3: raise OSError(121, "not up yet")
+        super()._chk(a)
+hw, gpio, runs, tmp = install_fakes(SlowBus({0x20,0x21,0x22}), pinctrl={27: "op dh pn | hi"})
+hw.SETTLE_STEPS = (0.0, 0.01, 0.02)
+info = hw.detect_hardware()
+check("slow rail: expanders absent on pass 1, found on a retry -> PRO", info["hardware"]=="pro" and info["settle_s"] > 0)
 
 hw, gpio, runs, tmp = install_fakes(FakeBus({0x40}, {(0x40,0xFE): swap(0x5449)}))
 info = hw.detect_hardware()

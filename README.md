@@ -62,6 +62,7 @@ What differs per board, all handled inside `mothbox_hw.py`:
 | Config switches | 40 DIP switches via 3 PCA9555 expanders (schedule, days, mode) | OFF jumper GPIO 16, DEBUG jumper GPIO 12; schedule always from the CSV |
 | Voltage | INA219 @0x40 behind the 3.3 V sensor rail (GPIO 27) | optional INA260 @0x40, else "UNKNOWN" on the display |
 | Other sensors | light sensor: LTR-F216A @0x53 (new PCBs) or LTR-303 @0x29 (old PCBs); DS18B20 on 1-Wire GPIO 4 | none |
+| Sensor rail (GPIO 27) | new PCB: switches all five I2C chips. Old PCB: switches only the light sensor and INA219; the expanders are always powered | not present |
 | Camera orientation | `VerticalFlip=auto` -> 0 | `VerticalFlip=auto` -> 1 (mounted upside-down) |
 | e-paper display | always | optional, tolerated if absent |
 
@@ -73,6 +74,8 @@ What differs per board, all handled inside `mothbox_hw.py`:
 - `mothbox_hw.py` hardware abstraction layer; all light / rail / switch / voltage pin logic moved there. `Attract_On/Off`, `Flash_On/Off`, `Party`, `DebugMode`, `blink_standby`, `12vOn/Off`, `3v3SensorsOn/Off`, `GetConfigSwitches`, `Diagnostics`, `UpdateDisplay`, `TakePhoto` all dispatch through it.
 - New `hardware` setting (auto / pro / diy) in `mothbox_settings.csv` and the editor. New `system/controls/hardware.txt` cache with the detection details.
 - `VerticalFlip` in `camera_settings.csv` accepts `auto`.
+- New `camera_settings_editor.html` next to the settings editor: edits `camera_settings.csv` with the same drag-and-drop / save-in-place flow. Shows focus distances in centimetres and converts to the diopters the camera wants; refuses the wrong CSV.
+- Autofocus safeguards in TakePhoto.py: a failed scan (covered lens) no longer overwrites the saved lens position, and an optional `LensPositionMin`/`LensPositionMax` range (stock 6 cm to 2.5 m) rejects a focus outside what the box should ever see.
 - Diagnostics log gains a `Hardware:` line; voltage is logged in one format on both boards (`scripts/read_power.py`), so photo EXIF carries it on both.
 - The e-paper footer shows `MOTHBOX PRO` / `MOTHBOX DIY`; photo EXIF `Model` says which body took it.
 - Old DIY-only experiments moved to `scripts/legacy_DIY/`; two old Pro pin helpers to `scripts/legacy_Pro/`.
