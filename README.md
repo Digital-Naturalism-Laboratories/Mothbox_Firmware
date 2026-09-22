@@ -68,6 +68,19 @@ What differs per board, all handled inside `mothbox_hw.py`:
 
 # Changelog
 
+## 6.0.1 -- field-readiness fixes
+
+- Camera check asks the kernel whether the sensor bound to its driver before waiting. A bad ribbon now reports in under a second instead of after a timeout, a healthy camera never waits, and the retry only runs while the driver is genuinely mid-probe. This removes the false "camera missing" 8-blink that appeared on good boxes when the check ran ~16 s into boot, before the probe had finished.
+- Standby blink patterns differ in rhythm, not just count: 2 quick blinks for OK, 8 at half speed for the camera warning.
+- The blink now comes before the startup diagnostics, so someone standing at the box gets their answer seconds sooner (~20 s to blink, ~28 s to display).
+- GPS is skipped entirely unless gpsd reports an attached device, saving ~10 s on the ~99% of boxes with no GPS.
+- `UpdateDisplay.py` draws an "ERROR: CAMERA DISCONNECTED" banner over the normal layout, driven by `system/controls/camera.txt`, which the Scheduler and TakePhoto keep current. E-ink holds the message with no power, so it is still there when someone walks up.
+- Autofocus safeguards in `TakePhoto.py`: a failed scan (covered lens, or a moth sitting on it) no longer overwrites the saved lens position, and an optional `LensPositionMin`/`LensPositionMax` range (stock 6 cm to 2.5 m) rejects a focus outside what the box should ever see.
+- New `camera_settings_editor.html` for `camera_settings.csv`, with focus distances entered in centimetres.
+- Hardware detection accepts any Pro-only I2C chip as proof, scans the full PCA9555 address range, and retries while the sensor rail settles, so older Pro PCBs are no longer misread as DIY.
+- Fixed: `Scheduler.py` used `shutil` and `glob` without importing them, which killed the boot at the camera check before the boot lock was released. Added `tests/check_names.py`, which catches used-but-never-imported names that `py_compile` accepts.
+- Fixed: `scripts/read5V.py` carried a dead `log_voltage()` referencing an undefined `LOG_FILE`.
+
 ## 6.0.0 -- unified firmware (Pro + DIY)
 
 - One set of scripts and one image for both boards; the board is detected at boot (see above).

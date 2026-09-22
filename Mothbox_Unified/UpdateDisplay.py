@@ -546,6 +546,24 @@ try:
     draw.text((epd.height - 2 - version_w, 8.7*rowH), version_txt, font=font_bigs, fill=0)
 
 
+    # ---- Error banner, drawn LAST so it sits on top of everything ----
+    # A blink pattern only helps someone standing there at the right moment;
+    # e-ink holds the message until it is fixed. Inverted (white on black) so
+    # it cannot be mistaken for normal content.
+    camera_state = read_control(CONTROL_ROOT / "camera.txt", "camera", "ok")
+    if str(camera_state).strip().lower() == "missing":
+        msg = "ERROR: CAMERA DISCONNECTED"
+        font_err = load_font('/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson_Next/AtkinsonHyperlegibleNext-Bold.otf', 13)
+        try:
+            tw = font_err.getlength(msg)
+        except AttributeError:
+            tw = draw.textsize(msg, font=font_err)[0]
+        bh = 19
+        by = int(3.2 * rowH)
+        draw.rectangle([(0, by), (epd.height, by + bh)], fill=0)          # solid black bar, full width
+        draw.text(((epd.height - tw) / 2, by + 3), msg, font=font_err, fill=255)
+        print("[UpdateDisplay] camera.txt says missing -- drew the error banner")
+
     #image = image.rotate(180) # rotate
     # Send to display
     epd.display(epd.getbuffer(image))

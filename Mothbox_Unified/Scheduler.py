@@ -56,6 +56,8 @@ import datetime
 import subprocess
 from subprocess import Popen  # For executing external scripts
 import os
+import shutil
+import glob
 import numpy as np
 import sys
 import schedule
@@ -148,48 +150,171 @@ def get_os_codename():
     return "unknown"
 
 
-def check_camera():
-    """
-    Checks whether a camera is connected and responding by actually
-    streaming from it for half a second with rpicam-hello. Just listing
-    cameras is not enough: a ribbon unplugged after boot still shows up in
-    the list (the sensor overlay registered it at boot) and only fails when
-    streaming starts, with 'Remote I/O error'.
-    Falls back to the older libcamera-hello if rpicam-hello is not found,
-    for compatibility with older images.
-    Returns True if a camera is detected, False otherwise.
-    Uses a short timeout so it never stalls the boot sequence.
-    """
-    # Try rpicam-hello first (current), fall back to libcamera-hello (legacy)
-    for tool in ("rpicam-hello", "libcamera-hello"):
-        try:
-            result = subprocess.run(
-                [tool, "-n", "-t", "500"],      # no preview, 500 ms of real frames
-                capture_output=True,
-                text=True,
-                timeout=25
-            )
-            output = result.stdout + result.stderr
-            print(f"[-]    Camera check using {tool}:")
-            print(f"       {output.strip()[:200]}")
-            if result.returncode == 0 and "No cameras available" not in output:
-                print(f"[OK]   Camera detected via {tool}.")
-                return True
-            else:
-                print(f"[WARN] {tool}: no camera found.")
-                print(f"       Output: {output.strip()[:200]}")
-                return False
-        except FileNotFoundError:
-            print(f"[-]    {tool} not found, trying fallback...")
-            continue
-        except subprocess.TimeoutExpired:
-            print(f"[WARN] Camera check timed out after 10 seconds ({tool}) -- assuming no camera.")
-            return False
-        except Exception as e:
-            print(f"[WARN] Camera check failed unexpectedly ({tool}): {e}")
-            return False
+def _uptime_s():
+    """Seconds since boot -- the number that makes a boot-time race obvious in the log."""
+    try:
+        with open("/proc/uptime") as f:
+            return float(f.read().split()[0])
+    except Exception:
+        return -1.0
 
-    print("[WARN] Neither rpicam-hello nor libcamera-hello found -- cannot verify camera.")
+
+def _kernel_camera_log():
+    """Last few kernel lines about the camera sensor, to tell 'not ready' from 'probe failed'."""
+    try:
+        r = subprocess.run(["dmesg"], capture_output=True, text=True, timeout=10)
+        lines = [l for l in (r.stdout or "").splitlines()
+                 if "ov64a40" in l or "imx" in l.lower() or "cfe" in l.lower()]
+        return lines[-6:]
+    except Exception:
+        return []
+
+
+def gps_devices_attached(timeout_s=2.0):
+    """
+    Ask gpsd how many devices it actually has, so a box with no GPS (nearly all
+    of them) does not spend 10 s every boot waiting for one. Asking gpsd is the
+    authoritative check: looking for /dev/ttyAMA0 and friends false-positives on
+    any Pi, GPS or not.
+
+    Returns the device count, or -1 if gpsd could not be reached at all.
+    """
+    import socket, json
+    try:
+        with socket.create_connection(("127.0.0.1", 2947), timeout=timeout_s) as sk:
+            sk.settimeout(timeout_s)
+            sk.sendall(b'?DEVICES;\n')
+            deadline = time.time() + timeout_s
+            buf = ""
+            while time.time() < deadline:
+                try:
+                    chunk = sk.recv(4096).decode("utf-8", "replace")
+                except Exception:
+                    break
+                if not chunk:
+                    break
+                buf += chunk
+                for line in buf.splitlines():
+                    line = line.strip()
+                    if not line.startswith("{"):
+                        continue
+                    try:
+                        msg = json.loads(line)
+                    except ValueError:
+                        continue
+                    if msg.get("class") == "DEVICES":
+                        return len(msg.get("devices", []))
+            return 0
+    except Exception:
+        return -1
+
+
+_SENSOR_DRIVER = re.compile(r"/(ov\d+\w*|imx\d+\w*|ar\d{4}\w*|arducam[\w-]*)$", re.I)
+
+
+def _camera_sensor_bound():
+    """
+    Ask the KERNEL whether a camera sensor has bound to its driver, rather than
+    inferring it from how long boot has taken.
+      True  -- a sensor is bound: the camera is present and probed
+      False -- a sensor driver exists but nothing is bound: still probing, or probe failed
+      None  -- no sensor driver in sysfs; cannot tell, so just try the camera
+    """
+    try:
+        seen_driver = False
+        for d in glob.glob("/sys/bus/i2c/drivers/*"):
+            if not _SENSOR_DRIVER.search(d):
+                continue
+            seen_driver = True
+            for e in os.listdir(d):
+                if re.fullmatch(r"\d+-[0-9a-f]{4}", e):
+                    return True
+        return False if seen_driver else None
+    except Exception:
+        return None
+
+
+def _camera_probe_failed():
+    """True if the kernel already tried and failed to probe the sensor (bad cable)."""
+    return any(("probe with driver" in l and "failed" in l) or "Failed to read chip id" in l
+               for l in _kernel_camera_log())
+
+
+def check_camera(total_wait_s=40, retry_every_s=5):
+    """
+    Check that a camera is connected and can actually stream, RETRYING until
+    total_wait_s before giving up.
+
+    The retry is the whole point. This runs as little as ~15 s into boot, and
+    the sensor's I2C probe on the CSI bus is not always finished by then --
+    libcamera then correctly reports "no cameras available" because at that
+    instant there are none. A single shot at that moment produced a false
+    "camera missing" warning (8 blinks) on a perfectly good box, while the
+    same command run by hand a minute later always worked (Sept 2026).
+
+    Streaming for 500 ms rather than just listing cameras is also deliberate:
+    a ribbon unplugged AFTER boot still appears in the list, because the
+    overlay registered the sensor at boot, and only fails when streaming
+    starts with 'Remote I/O error'.
+
+    On final failure the kernel's own view is printed, which distinguishes a
+    probe that never happened from one that failed with -121 (bad cable).
+
+    Returns True if a camera is detected, False otherwise.
+    """
+    tool = next((t for t in ("rpicam-hello", "libcamera-hello") if shutil.which(t)), None)
+    if tool is None:
+        print("[WARN] Neither rpicam-hello nor libcamera-hello found -- cannot verify camera.")
+        return False
+
+    deadline = time.time() + total_wait_s
+    attempt = 0
+    last = ""
+    while True:
+        attempt += 1
+
+        # Ask the kernel before spending any time waiting. This turns the two
+        # common cases into instant answers and leaves only the genuinely
+        # ambiguous one -- driver loaded, sensor not bound yet -- to the retry.
+        bound = _camera_sensor_bound()
+        if bound is False and _camera_probe_failed():
+            print(f"[WARN] Kernel reports the camera sensor probe FAILED "
+                  f"({_uptime_s():.0f}s into boot) -- waiting will not help. "
+                  f"Check the ribbon cable seating and orientation.")
+            for l in _kernel_camera_log():
+                print(f"       kernel: {l[-160:]}")
+            return False
+        if bound is False:
+            if time.time() >= deadline:
+                break
+            print(f"[-]    Sensor not bound yet at {_uptime_s():.0f}s into boot "
+                  f"(attempt {attempt}) -- driver still probing; retrying in {retry_every_s}s...")
+            time.sleep(retry_every_s)
+            continue
+
+        try:
+            r = subprocess.run([tool, "-n", "-t", "500"], capture_output=True, text=True, timeout=25)
+            last = (r.stdout + r.stderr).strip()
+            if r.returncode == 0 and "no cameras available" not in last.lower():
+                print(f"[OK]   Camera detected via {tool} "
+                      f"(attempt {attempt}, {_uptime_s():.0f}s into boot).")
+                return True
+        except subprocess.TimeoutExpired:
+            last = f"{tool} timed out after 25s"
+        except Exception as e:
+            last = f"{e.__class__.__name__}: {e}"
+
+        if time.time() >= deadline:
+            break
+        print(f"[-]    No camera yet at {_uptime_s():.0f}s into boot (attempt {attempt}) -- "
+              f"the driver may still be probing; retrying in {retry_every_s}s...")
+        time.sleep(retry_every_s)
+
+    print(f"[WARN] {tool}: no camera after {attempt} attempt(s) over {total_wait_s}s "
+          f"({_uptime_s():.0f}s into boot).")
+    print(f"       Last output: {last[:200]}")
+    for l in _kernel_camera_log():
+        print(f"       kernel: {l[-160:]}")
     return False
 
 
@@ -1958,15 +2083,16 @@ handle_wifi_provisioning(settings.get("ssid", None), settings.get("wifipass", No
 
 log_section("CONFIGURATION -- Camera")
 camera_ok = check_camera()
+# Record it where UpdateDisplay.py can see it, so a disconnected camera shows
+# as a banner on the e-paper instead of only as a blink pattern nobody is
+# there to count. TakePhoto.py rewrites this too if the camera dies mid-session.
+atomic_update_kv(os.path.join(CONTROL_ROOT, "camera.txt"), "camera", "ok" if camera_ok else "missing")
 if not camera_ok:
     log_warn("Camera not found -- standby blink will use warning pattern (8 blinks).")
 #------ End Camera Check -------
 
 
 
-log_section("CONFIGURATION -- Sensors & Diagnostics")
-
-run_script("/home/pi/Desktop/Mothbox/Diagnostics.py", "Startup_Check", show_output=True)
 
 
 
@@ -1984,22 +2110,38 @@ if mode == "ACTIVE":
         log_info("Outside schedule window -> entering STANDBY.")
         mode = "STANDBY"
         atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
-        blink_count = 2 if camera_ok else 8
-        run_cmd(f"python /home/pi/Desktop/Mothbox/scripts/blink_standby.py {blink_count}")
+        # Blink FIRST. Someone is usually standing there waiting to know the
+        # box is healthy, and the diagnostics below take several seconds they
+        # would otherwise spend staring at a dark box. The log still gets
+        # everything -- it just gets it after the human has their answer.
+        blink_count, blink_phase = (2, 0.25) if camera_ok else (8, 0.5)
+        run_cmd(f"python /home/pi/Desktop/Mothbox/scripts/blink_standby.py {blink_count} {blink_phase}")
+
+        log_section("STANDBY -- Sensors & Diagnostics")
+        run_script("/home/pi/Desktop/Mothbox/Diagnostics.py", "Standby_Check", show_output=True)
         run_shutdown_pi5_FAST()
         quit()
 
+log_section("CONFIGURATION -- Sensors & Diagnostics")
+run_script("/home/pi/Desktop/Mothbox/Diagnostics.py", "Startup_Check", show_output=True)
+
 
 log_section("LAUNCH -- GPS")
-log_info("Checking GPS (if available) -- up to 10 seconds...")
-process = subprocess.Popen(['python', '/home/pi/Desktop/Mothbox/GPS.py'],
-                          stdout=subprocess.PIPE,
-                          stderr=subprocess.PIPE)
-stdout, stderr = process.communicate()
-if stderr:
-  log_warn(f"GPS error: {stderr.decode().strip()}")
+_gps_devs = gps_devices_attached()
+if _gps_devs == 0:
+    log_info("gpsd has no device attached -- skipping the GPS read (saves ~10s).")
+elif _gps_devs < 0:
+    log_info("gpsd not reachable -- skipping the GPS read.")
 else:
-  print(stdout.decode())
+    log_info(f"gpsd reports {_gps_devs} device(s) -- reading GPS, up to 10 seconds...")
+    process = subprocess.Popen(['python', '/home/pi/Desktop/Mothbox/GPS.py'],
+                              stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE)
+    stdout, stderr = process.communicate()
+    if stderr:
+      log_warn(f"GPS error: {stderr.decode().strip()}")
+    else:
+      print(stdout.decode())
 
 # Toggle a mode where the flash lights are always on
 #enable_onlyflash()

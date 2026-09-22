@@ -979,6 +979,10 @@ extract_af_limits(camera_settings)
 # photo. Cron will try again next minute and warn again.
 def warn_no_camera(reason):
     print(f"[TakePhoto] NO CAMERA DETECTED ({reason}) -- blinking 8x warning, skipping this photo")
+    try:   # so the e-paper banner appears even if the camera died mid-session
+        atomic_update_kv(CONTROL_ROOT / "camera.txt", "camera", "missing")
+    except Exception:
+        pass
     run_cmd("python /home/pi/Desktop/Mothbox/Flash_Off.py")   # flash first: it must never stay on
     _disarm_flash_watchdog()
     run_cmd("python /home/pi/Desktop/Mothbox/scripts/blink_standby.py 8")
@@ -1103,6 +1107,10 @@ takePhoto_Manual()
 picam2.stop()
 signal.alarm(0)
 _disarm_flash_watchdog()
+try:       # a photo completed, so clear any stale "camera missing" banner
+    atomic_update_kv(CONTROL_ROOT / "camera.txt", "camera", "ok")
+except Exception:
+    pass
 record_photo_taken()  # Only called on successful capture completion
 quit()
 

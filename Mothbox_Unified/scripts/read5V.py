@@ -19,22 +19,11 @@ def get_voltage():
                 return None
     return None
 
-def log_voltage():
-    new_file = not os.path.exists(LOG_FILE)
-    with open(LOG_FILE, "a") as f:
-        if new_file:
-            f.write("timestamp,voltage_V\n")
-
-        while True:
-            v = get_voltage()
-            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-            if v is not None:
-                f.write(f"{timestamp},{v:.6f}\n")
-                f.flush()
-                print(f"{timestamp} - {v:.6f} V")
-            else:
-                print(f"{timestamp} - Voltage read failed")
-            time.sleep(1)
+# NOTE: this script reports the 5 V rail ONCE, which is what Diagnostics.py
+# wants. It used to carry a copy of log_voltage() that referenced an undefined
+# LOG_FILE and would have crashed the moment anything called it. The working
+# continuous logger lives in scripts/5v_power_logger.py -- use that instead of
+# re-adding one here.
 
 if __name__ == "__main__":
     v = get_voltage()
