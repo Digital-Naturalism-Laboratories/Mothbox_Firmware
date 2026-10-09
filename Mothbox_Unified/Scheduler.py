@@ -1436,7 +1436,11 @@ def set_wakeup_alarm(epoch_time):
     atomic_update_kv(os.path.join(CONTROL_ROOT, "nextwake.txt"), "nextwake", epoch_time)
 
 
-SHUTDOWN_DEADMAN_S = 1200   # 20 min: the final backup alone is capped at 15
+# Must exceed the WORST CASE of everything the shutdown path can legitimately
+# wait for, or the safety net becomes the fault: drain 120s + final backup 900s
+# + display 120s + diagnostics 180s + sleeps = 1325s (22.1 min). 1800s leaves
+# ~8 min of headroom. Keep this above that sum if any of those caps change.
+SHUTDOWN_DEADMAN_S = 1800   # 30 min
 
 def arm_shutdown_deadman(seconds=SHUTDOWN_DEADMAN_S):
     """
