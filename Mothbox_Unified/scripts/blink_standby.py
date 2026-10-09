@@ -19,7 +19,7 @@ import time
 # in RHYTHM as well as count: "all good" is 2 quick blinks, the camera warning
 # is 8 blinks at half speed. Counting flashes is hard; noticing that something
 # is blinking slowly and insistently is not.
-FAST = 0.25      # "everything is OK"
+FAST = 0.125     # "everything is OK" -- deliberately brisk, hard to confuse with the warning
 SLOW = 0.5       # warning -- twice as slow
 
 blink_count = 2

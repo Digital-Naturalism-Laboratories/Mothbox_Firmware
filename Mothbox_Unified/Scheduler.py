@@ -295,7 +295,16 @@ def check_camera(total_wait_s=40, retry_every_s=5):
         try:
             r = subprocess.run([tool, "-n", "-t", "500"], capture_output=True, text=True, timeout=25)
             last = (r.stdout + r.stderr).strip()
-            if r.returncode == 0 and "no cameras available" not in last.lower():
+            low = last.lower()
+            # A camera that is BUSY is a camera that is PRESENT. If TakePhoto
+            # (or anything else) holds it at this instant, the test fails for a
+            # reason that has nothing to do with the cable. Reporting that as
+            # "disconnected" is the false positive that cost whole sessions.
+            if any(k in low for k in ("device or resource busy", "__init__ sequence did not complete",
+                                      "failed to acquire camera", "camera in use", "resource temporarily unavailable")):
+                print(f"[OK]   Camera is present but busy ({tool}) -- counting that as connected.")
+                return True
+            if r.returncode == 0 and "no cameras available" not in low:
                 print(f"[OK]   Camera detected via {tool} "
                       f"(attempt {attempt}, {_uptime_s():.0f}s into boot).")
                 return True
@@ -2139,7 +2148,20 @@ camera_ok = check_camera()
 # there to count. TakePhoto.py rewrites this too if the camera dies mid-session.
 atomic_update_kv(os.path.join(CONTROL_ROOT, "camera.txt"), "camera", "ok" if camera_ok else "missing")
 if not camera_ok:
-    log_warn("Camera not found -- standby blink will use warning pattern (8 blinks).")
+    # Warn the human NOW, on every path, then carry on exactly as normal.
+    # The check is advisory only: nothing downstream is gated on it, so if this
+    # was a false positive the box still takes its photos. Better a needless
+    # warning than a silent night of blank frames.
+    log_warn("Camera not detected -- display banner set. "
+             "Photos will still be attempted normally in case this is a false alarm.")
+    # OFF means OFF: an OFF box must never light anything. It already exits
+    # long before this point, but say so explicitly so that stays true if the
+    # camera check is ever moved earlier in the boot sequence.
+    if mode == "OFF":
+        log_info("Mode is OFF -- skipping the 8-blink warning (nothing may light up in OFF).")
+    else:
+        log_warn("Blinking the 8x camera warning.")
+        run_cmd("python /home/pi/Desktop/Mothbox/scripts/blink_standby.py 8 0.5")
 #------ End Camera Check -------
 
 
@@ -2165,8 +2187,10 @@ if mode == "ACTIVE":
         # box is healthy, and the diagnostics below take several seconds they
         # would otherwise spend staring at a dark box. The log still gets
         # everything -- it just gets it after the human has their answer.
-        blink_count, blink_phase = (2, 0.25) if camera_ok else (8, 0.5)
-        run_cmd(f"python /home/pi/Desktop/Mothbox/scripts/blink_standby.py {blink_count} {blink_phase}")
+        # Only the "all good" blink here -- a missing camera already blinked its
+        # 8x warning right after the check, on whichever path we took.
+        if camera_ok:
+            run_cmd("python /home/pi/Desktop/Mothbox/scripts/blink_standby.py 2 0.125")
 
         log_section("STANDBY -- Sensors & Diagnostics")
         run_script("/home/pi/Desktop/Mothbox/Diagnostics.py", "Standby_Check", show_output=True)
@@ -2202,16 +2226,10 @@ run_helper("/home/pi/Desktop/Mothbox/UpdateDisplay.py", "Display error")
 
 log_section("LAUNCH -- Final Mode")
 
-if mode == "OFF":
-    log_info("Mode is OFF -- shutting down.")
-    if rpiModel == 4:
-        log_warn("Pi 4 not supported.")
-        run_shutdown_pi5_FAST()
-        quit()
-    if rpiModel == 5:
-        run_shutdown_pi5()
-        quit()
-elif mode == "DEBUG":
+# NOTE: no "OFF" branch here. OFF is handled much earlier, in CONFIGURATION --
+# Mode, which shuts down and quit()s before this point, so a branch here could
+# never run.
+if mode == "DEBUG":
     log_ok("Mode is DEBUG -- wifi on, cron off, staying alive.")
     # Define the path to your script (replace 'path/to/script' with the actual path)
     debug_script_path = "/home/pi/Desktop/Mothbox/DebugMode.py"

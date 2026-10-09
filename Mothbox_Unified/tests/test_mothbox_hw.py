@@ -68,8 +68,12 @@ def install_fakes(bus=None, smbus_missing=False, pinctrl=None):
         return (0, "")
     hw._run = fake_run
     # outputs are pinctrl commands now: expose them like GPIO calls -> [(pin, level), ...]
-    gpio.outs = lambda: [(int(c[3]), 1 if c[5] == "dh" else 0) for c in runs
-                         if c[:3] == ["sudo", "pinctrl", "set"] and len(c) > 5 and c[4] == "op"]
+    # pinctrl calls are batched now ("pinctrl set 9,6,5,22,7 op dh"), so expand
+    # each comma list back into one (pin, level) pair per pin, in order.
+    gpio.outs = lambda: [(int(pin), 1 if c[5] == "dh" else 0)
+                         for c in runs
+                         if c[:3] == ["sudo", "pinctrl", "set"] and len(c) > 5 and c[4] == "op"
+                         for pin in str(c[3]).split(",")]
     return hw, gpio, runs, tmp
 
 def swap(v): return ((v & 0xFF) << 8) | (v >> 8)

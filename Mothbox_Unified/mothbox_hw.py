@@ -253,11 +253,33 @@ def _i2c_open():
 
 
 def _probe(bus, addr):
-    try:
-        bus.read_byte(addr)
-        return True
-    except Exception:
-        return False
+    """
+    Is a chip answering at this address?
+
+    Probing I2C has no single safe method -- i2cdetect(8) picks per address and
+    warns that a bare "receive byte" can lock up some chips. This used to do
+    exactly that (`bus.read_byte(addr)`), and the PCA9555 expanders did not
+    reliably answer it: on doblarQuinde (Oct 2026) detection reported
+    i2c ['0x29','0x40'] -- no expanders -- while in the SAME boot
+    _read_pro_switches() happily did register reads on 0x20-0x22. The chips
+    were present; the probe was wrong. The box then read all-zero switches,
+    concluded Active=0, and shut itself down on four scheduled wakeups.
+
+    So probe the way the code actually talks to these chips: read register
+    0x00, which is a valid readable register on every device the Mothbox has
+    (PCA9555 Input Port 0, LTR-303 ALS_CONTR, LTR-F216A MAIN_CTRL,
+    INA219/INA260 Configuration). Fall back to the other two methods only if
+    that fails, so a chip with an unreadable register 0 is still found.
+    """
+    for method in (lambda: bus.read_byte_data(addr, 0x00),   # how we really use them
+                   lambda: bus.read_byte(addr),              # the old way, as a fallback
+                   lambda: bus.write_quick(addr)):           # last resort
+        try:
+            method()
+            return True
+        except Exception:
+            continue
+    return False
 
 
 def _light_sensor(bus):
@@ -341,7 +363,10 @@ def detect_hardware(write_cache=True, verbose=True):
 
             found, evidence, light = [], [], "none"
             elapsed = 0.0
-            for step in (SETTLE_STEPS if not rail_was_on else SETTLE_STEPS[:1]):
+            # Always allow the retries. The rail already being up says nothing
+            # about whether the bus is ready yet, and a single shot is how a
+            # transient miss became a permanent "this is a DIY" verdict.
+            for step in SETTLE_STEPS:
                 if step > elapsed:
                     time.sleep(step - elapsed)
                     elapsed = step
@@ -612,28 +637,92 @@ def _read_diy_jumpers():
     return out
 
 
+def fail_safe_switches(reason=""):
+    """
+    What to assume when the switches cannot be trusted: ACTIVE, CSV schedule.
+
+    The box exists to collect data. If we cannot read the DIP switches, the
+    only safe assumption is that it should be running -- a box that wrongly
+    runs costs some battery, a box that wrongly powers off costs the whole
+    night and looks, from outside, exactly like a dead unit.
+
+    Everything except Active is left 0 on purpose. In particular U1=0 forces
+    the CSV schedule; trusting a switch schedule we could not read would give
+    an empty hour list and the box would never wake again.
+    """
+    if reason:
+        print(f"[mothbox_hw] !! Switches unreadable ({reason}) -- assuming ACTIVE with the CSV "
+              f"schedule. NOT powering off on an unreadable switch.")
+    out = {name: 0 for name in SWITCH_NAMES}
+    out["Active"] = 1
+    return out
+
+
+def _expanders_were_detected():
+    """
+    Did hardware detection actually see a PCA9555 this boot?
+
+    If it did not, a switch read that appears to succeed cannot be trusted: an
+    unpowered or absent expander reads as 0xFF, which inverts to "every switch
+    off" -- indistinguishable from a user deliberately switching the box off.
+    Oct 2026: doblarQuinde woke correctly at 02:00 and 04:00, read all-zero
+    switches, concluded Active=0, and shut straight back down. Its detection
+    line said i2c ['0x29','0x40'] on every one of those boots -- no expanders.
+    """
+    try:
+        found = hardware_info().get("i2c_found", "")
+        addrs = {a.strip().lower() for a in str(found).split(",") if a.strip()}
+        return any(hex(a) in addrs for a in PCA9555_RANGE)
+    except Exception:
+        return True          # cannot tell -> do not cry wolf
+
+
 def read_switches():
     """
-    Every switch in SWITCH_NAMES -> 0/1. Pro: the DIP switches via the three
-    PCA9555 expanders (sensor rail raised for the read). DIY: only Active and
-    Debug exist, from the two jumper pins; everything else is 0, which makes
-    the Scheduler fall back to the CSV schedule exactly as before.
+    Every switch in SWITCH_NAMES -> 0/1.
+
+    Pro: the DIP switches via the three PCA9555 expanders, with the sensor
+    rail raised. If the bus read fails, OR the expanders were never seen
+    during detection, fall back to fail_safe_switches() (ACTIVE) rather than
+    reporting zeros that would be read as "switched off".
+
+    DIY: only Active and Debug exist, from the two jumper pins; everything
+    else is 0, which makes the Scheduler fall back to the CSV schedule.
     """
     if not is_pro():
         return _read_diy_jumpers()
+
     rail_was_on = rail_3v3_is_on()
     if not rail_was_on:
         rail_3v3(True)
-        time.sleep(0.15)
+        time.sleep(0.5)      # was 0.15s -- give the expanders time to come up
     try:
-        bus = _i2c_open()
         try:
-            return _read_pro_switches(bus)
+            bus = _i2c_open()
+        except Exception as e:
+            return fail_safe_switches(f"cannot open I2C: {e.__class__.__name__}")
+        try:
+            last_err = None
+            for attempt in (1, 2, 3):
+                try:
+                    switches = _read_pro_switches(bus)
+                    break
+                except Exception as e:
+                    last_err = e
+                    time.sleep(0.4)
+            else:
+                return fail_safe_switches(f"expanders did not answer after 3 tries: {last_err}")
         finally:
             bus.close()
     finally:
         if not rail_was_on:
             rail_3v3(False)
+
+    # The read "worked", but if detection never saw an expander this boot then
+    # all-zeros is far more likely to be a silent bus than a real OFF switch.
+    if not any(switches.values()) and not _expanders_were_detected():
+        return fail_safe_switches("every switch read 0 and no PCA9555 was detected this boot")
+    return switches
 
 
 if __name__ == "__main__":

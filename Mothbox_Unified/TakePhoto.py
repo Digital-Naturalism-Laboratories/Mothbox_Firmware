@@ -28,6 +28,22 @@ BOOT_LOCK = "/run/boot_script_running"
 if os.path.exists(BOOT_LOCK):
     sys.exit(0)
 
+#######---- One TakePhoto at a time ------
+# cron fires every minute, but a full-resolution capture can take longer than
+# that on a throttled Pi. Overlapping runs fight over the camera (the loser
+# dies with "Camera __init__ sequence did not complete") and burn CPU on a
+# photo that will never happen -- which is heat the box cannot afford.
+import fcntl
+_PHOTO_LOCK_PATH = "/run/mothbox_takephoto.lock"
+try:
+    _photo_lock = open(_PHOTO_LOCK_PATH, "w")
+    fcntl.flock(_photo_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except OSError:
+    print("[TakePhoto] a previous photo is still in progress -- skipping this cycle")
+    sys.exit(0)
+except Exception as e:
+    print(f"[TakePhoto] could not take the single-instance lock ({e}); continuing anyway")
+
 #-----------------------------##
 
 import time
@@ -275,15 +291,26 @@ def _disarm_flash_watchdog():
             pass
         _flash_watchdog = None
 
+# Drive the lights IN-PROCESS via mothbox_hw instead of shelling out to
+# Attract_On.py / Flash_On.py / Flash_Off.py. Those were four Python
+# interpreter startups per photo -- on a thermally throttled Pi that is
+# seconds of pure overhead, and the flash stayed lit for all of it. The
+# subprocess scripts remain for manual/cron use; this is the hot path.
 def flashOff():
-    run_cmd("python /home/pi/Desktop/Mothbox/Flash_Off.py")
+    if mothbox_hw is not None:
+        mothbox_hw.flash_off()
+    else:
+        run_cmd("python /home/pi/Desktop/Mothbox/Flash_Off.py")
     _disarm_flash_watchdog()
     print("Flash Off\n")
-    run_cmd("python /home/pi/Desktop/Mothbox/Attract_On.py") # keep regulator on
 
 def flashOn():
-    run_cmd("python /home/pi/Desktop/Mothbox/Attract_On.py")
-    run_cmd("python /home/pi/Desktop/Mothbox/Flash_On.py")
+    if mothbox_hw is not None:
+        mothbox_hw.attract_on()      # also raises the shared 12V rail
+        mothbox_hw.flash_on()
+    else:
+        run_cmd("python /home/pi/Desktop/Mothbox/Attract_On.py")
+        run_cmd("python /home/pi/Desktop/Mothbox/Flash_On.py")
     _arm_flash_watchdog()
     print("Flash On\n")
 
@@ -993,15 +1020,27 @@ extract_af_limits(camera_settings)
 # Scheduler's standby warning: blink the lights 8 times, then give up on this
 # photo. Cron will try again next minute and warn again.
 def warn_no_camera(reason):
-    print(f"[TakePhoto] NO CAMERA DETECTED ({reason}) -- blinking 8x warning, skipping this photo")
-    try:   # so the e-paper banner appears even if the camera died mid-session
-        atomic_update_kv(CONTROL_ROOT / "camera.txt", "camera", "missing")
-    except Exception:
-        pass
-    run_cmd("python /home/pi/Desktop/Mothbox/Flash_Off.py")   # flash first: it must never stay on
+    """
+    Give up on THIS photo, quietly.
+
+    Deliberately does NOT blink the 8x warning or touch camera.txt. The box
+    cannot have been unplugged mid-session, so a camera error here is almost
+    always transient -- usually a previous TakePhoto still holding the camera
+    ("Camera __init__ sequence did not complete"). On 2026-10-05 that fired 12
+    times in one session on a healthy box: 12 spurious 8-blink alarms, ~96 s of
+    extra full-brightness lights, and a false "CAMERA DISCONNECTED" banner.
+    Detecting a genuinely absent camera is the Scheduler's job, once, at boot.
+    """
+    print(f"[TakePhoto] camera unavailable ({reason}) -- skipping this photo, will retry next cycle")
+    if mothbox_hw is not None:
+        try:
+            mothbox_hw.flash_off()      # the flash must never be left on
+        except Exception:
+            pass
+    else:
+        run_cmd("python /home/pi/Desktop/Mothbox/Flash_Off.py")
     _disarm_flash_watchdog()
-    run_cmd("python /home/pi/Desktop/Mothbox/scripts/blink_standby.py 8")
-    sys.exit(1)
+    sys.exit(0)
 
 # Whole-photo watchdog inside this process: if anything in the camera path
 # blocks (a camera that starts but never delivers a frame), give up, kill the
@@ -1016,9 +1055,11 @@ def _photo_watchdog(signum, frame):
 signal.signal(signal.SIGALRM, _photo_watchdog)
 signal.alarm(PHOTO_WATCHDOG_S)
 
+# Picamera2() alone is enough. global_camera_info() used to run first, which
+# builds and tears down a whole CameraManager -- a second full libcamera
+# enumeration on every photo, for no benefit, since Picamera2() reports the
+# same failure.
 try:
-    if not Picamera2.global_camera_info():
-        warn_no_camera("libcamera lists no cameras")
     picam2 = Picamera2()
 except SystemExit:
     raise
@@ -1122,10 +1163,6 @@ takePhoto_Manual()
 picam2.stop()
 signal.alarm(0)
 _disarm_flash_watchdog()
-try:       # a photo completed, so clear any stale "camera missing" banner
-    atomic_update_kv(CONTROL_ROOT / "camera.txt", "camera", "ok")
-except Exception:
-    pass
 record_photo_taken()  # Only called on successful capture completion
 quit()
 
