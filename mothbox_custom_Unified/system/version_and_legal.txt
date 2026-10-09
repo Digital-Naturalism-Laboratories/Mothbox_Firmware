@@ -1,4 +1,4 @@
-Mothbox v6.0.1 (unified firmware: runs on Mothbox Pro and Mothbox DIY)
+Mothbox v6.0.2 (unified firmware: runs on Mothbox Pro and Mothbox DIY)
 
 Open Source Moth Monitoring Project
 All items are open source and freely available to use and share. 

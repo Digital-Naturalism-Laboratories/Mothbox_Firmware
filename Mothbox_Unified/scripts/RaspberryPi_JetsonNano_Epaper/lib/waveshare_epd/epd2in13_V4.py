@@ -91,10 +91,31 @@ class EPD:
     function :Wait until the busy_pin goes LOW
     parameter:
     '''
+    BUSY_TIMEOUT_S = 30   # a real refresh is ~2 s; 30 s means the panel is wedged
+
     def ReadBusy(self):
+        """
+        Wait for the panel, but NEVER forever.
+
+        Upstream this is an unbounded `while busy: sleep(10ms)`. If the BUSY
+        line never drops -- unresponsive panel, SPI glitch, GPIO contention --
+        UpdateDisplay.py hangs, and because the scheduler runs it during
+        shutdown the box then never powers off. It stays lit, drains the
+        battery, and dies mid-write with a corrupted card (Oct 2026). A
+        display that will not refresh must not be able to do that, so give up
+        and let the caller carry on.
+        """
+        import time as _t
         logger.debug("e-Paper busy")
+        deadline = _t.time() + self.BUSY_TIMEOUT_S
         while(epdconfig.digital_read(self.busy_pin) == 1):      # 0: idle, 1: busy
-            epdconfig.delay_ms(10)  
+            if _t.time() > deadline:
+                logger.warning("e-Paper BUSY never released after %ss -- giving up on this refresh",
+                               self.BUSY_TIMEOUT_S)
+                print(f"[epd] BUSY pin stuck high for {self.BUSY_TIMEOUT_S}s -- abandoning refresh "
+                      f"so the caller (and any shutdown) can continue")
+                return
+            epdconfig.delay_ms(10)
         logger.debug("e-Paper busy release")
 
     '''

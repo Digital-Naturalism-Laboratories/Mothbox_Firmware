@@ -12,7 +12,18 @@ import tempfile
 
 # ---------- Paths ----------
 
-CONTROL_ROOT = Path("/boot/firmware/mothbox_custom/system/controls")
+# Control files live on the JOURNALED ext4 root now, not the FAT boot
+# partition -- see mothbox_paths.py for why (Oct 2026: FAT corruption bricked
+# deployed boxes). Writes go to STATE_ROOT; reads fall back to the old boot
+# location so a box upgrading in place keeps its existing values.
+try:
+    from mothbox_paths import STATE_ROOT as _STATE_ROOT, resolve_read as _resolve_read, ensure_state_dir as _ensure_state_dir
+    _ensure_state_dir()
+    CONTROL_ROOT = _STATE_ROOT
+except Exception:                       # module missing -> old behaviour, still runs
+    CONTROL_ROOT = Path("/boot/firmware/mothbox_custom/system/controls")
+    def _resolve_read(p):
+        return p
 
 GPS_TIME_PATH = CONTROL_ROOT / "gpstime.txt"
 UTC_PATH      = CONTROL_ROOT / "utc.txt"

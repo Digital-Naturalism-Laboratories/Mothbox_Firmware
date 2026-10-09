@@ -135,7 +135,18 @@ def load_settings(filename):
         return None
     
     
-CONTROL_ROOT = Path("/boot/firmware/mothbox_custom/system/controls")
+# Control files live on the JOURNALED ext4 root now, not the FAT boot
+# partition -- see mothbox_paths.py for why (Oct 2026: FAT corruption bricked
+# deployed boxes). Writes go to STATE_ROOT; reads fall back to the old boot
+# location so a box upgrading in place keeps its existing values.
+try:
+    from mothbox_paths import STATE_ROOT as _STATE_ROOT, resolve_read as _resolve_read, ensure_state_dir as _ensure_state_dir
+    _ensure_state_dir()
+    CONTROL_ROOT = _STATE_ROOT
+except Exception:                       # module missing -> old behaviour, still runs
+    CONTROL_ROOT = Path("/boot/firmware/mothbox_custom/system/controls")
+    def _resolve_read(p):
+        return p
 
 
 def read_control(path: Path, key: str, default=None):
@@ -143,6 +154,10 @@ def read_control(path: Path, key: str, default=None):
     Reads a single key=value control file.
     Safe against missing, empty, or corrupted files.
     """
+    # Prefer the ext4 copy; fall back to the legacy boot-partition one so a
+    # box upgrading in place keeps its existing value, and so the shipped
+    # read-only files (softwareversion / safetygb / onlyflash) are found.
+    path = _resolve_read(path)
     if not path.exists():
         return default
 

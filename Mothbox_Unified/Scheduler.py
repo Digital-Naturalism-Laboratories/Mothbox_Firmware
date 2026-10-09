@@ -720,6 +720,7 @@ def get_control_values(filename):
 
     control_values = {}
 
+    filename = str(_resolve_read(filename))
     if not os.path.exists(filename):
         return control_values
 
@@ -971,14 +972,7 @@ def run_shutdown_pi5():
         log_warn("Filesystem not yet expanded -- updating ePaper display with a "
                  "'please wait' message before blocking on the resize.")
         GPIO.cleanup()
-        process = subprocess.Popen(['python', '/home/pi/Desktop/Mothbox/UpdateDisplay.py'],
-                                  stdout=subprocess.PIPE,
-                                  stderr=subprocess.PIPE)
-        stdout, stderr = process.communicate()
-        if stderr:
-          log_warn(f"UpdateDisplay error: {stderr.decode().strip()}")
-        else:
-          print(stdout.decode())
+        run_helper("/home/pi/Desktop/Mothbox/UpdateDisplay.py", "UpdateDisplay error")
     wait_for_firstboot_settle(log=log_warn)
     # --- End first-boot guard ---
 
@@ -1001,6 +995,8 @@ def run_shutdown_pi5():
         schedule.every(remaining_minutes).minutes.do(run_shutdown_pi5)
         return
     # --- End guard ---
+
+    arm_shutdown_deadman()
 
     log_section("SHUTDOWN -- Graceful")
 
@@ -1044,14 +1040,7 @@ def run_shutdown_pi5():
     GPIO.cleanup()
 
     log_info("Updating ePaper display before shutdown (if available)...")
-    process = subprocess.Popen(['python', '/home/pi/Desktop/Mothbox/UpdateDisplay.py'],
-                              stdout=subprocess.PIPE,
-                              stderr=subprocess.PIPE)
-    stdout, stderr = process.communicate()
-    if stderr:
-      log_warn(f"UpdateDisplay error: {stderr.decode().strip()}")
-    else:
-      print(stdout.decode())
+    run_helper("/home/pi/Desktop/Mothbox/UpdateDisplay.py", "UpdateDisplay error")
 
     log_info("Shutting down in ~4 seconds...")
     time.sleep(1)
@@ -1087,14 +1076,7 @@ def run_shutdown_pi5_FAST():
         log_warn("Filesystem not yet expanded -- updating ePaper display with a "
                  "'please wait' message before blocking on the resize.")
         GPIO.cleanup()
-        process = subprocess.Popen(['python', '/home/pi/Desktop/Mothbox/UpdateDisplay.py'],
-                                  stdout=subprocess.PIPE,
-                                  stderr=subprocess.PIPE)
-        stdout, stderr = process.communicate()
-        if stderr:
-          log_warn(f"UpdateDisplay error: {stderr.decode().strip()}")
-        else:
-          print(stdout.decode())
+        run_helper("/home/pi/Desktop/Mothbox/UpdateDisplay.py", "UpdateDisplay error")
     wait_for_firstboot_settle(log=log_warn)
     # --- End first-boot guard ---
 
@@ -1125,6 +1107,8 @@ def run_shutdown_pi5_FAST():
             return
     # --- End guard ---
     
+    arm_shutdown_deadman()
+
     #Stop big lights from turning on!
     offlight_script_path = "/home/pi/Desktop/Mothbox/Attract_Off.py"
     # Call the script using subprocess.run
@@ -1143,14 +1127,7 @@ def run_shutdown_pi5_FAST():
 
     GPIO.cleanup()
     log_info("Updating ePaper display before shutdown (if available)...")
-    process = subprocess.Popen(['python', '/home/pi/Desktop/Mothbox/UpdateDisplay.py'],
-                              stdout=subprocess.PIPE,
-                              stderr=subprocess.PIPE)
-    stdout, stderr = process.communicate()
-    if stderr:
-      log_warn(f"UpdateDisplay error: {stderr.decode().strip()}")
-    else:
-      print(stdout.decode())
+    run_helper("/home/pi/Desktop/Mothbox/UpdateDisplay.py", "UpdateDisplay error")
 
     # subprocess.run(["python", "/home/pi/Desktop/Mothbox/TurnEverythingOff.py"])
     os.system("sudo shutdown -h now")
@@ -1450,7 +1427,72 @@ def set_wakeup_alarm(epoch_time):
     atomic_update_kv(os.path.join(CONTROL_ROOT, "nextwake.txt"), "nextwake", epoch_time)
 
 
-def run_script(script_path, *args, show_output=True):
+SHUTDOWN_DEADMAN_S = 1200   # 20 min: the final backup alone is capped at 15
+
+def arm_shutdown_deadman(seconds=SHUTDOWN_DEADMAN_S):
+    """
+    Last-resort guarantee that the box actually powers off.
+
+    Everything in the shutdown path is now individually bounded, but "bounded"
+    only helps if the Python process is still running. A box that stays
+    powered keeps its lights on, flattens the battery, and then loses power
+    mid-write -- which is how a FAT boot partition gets corrupted and a box
+    stops booting entirely (Oct 2026, 3 of 6 deployed units).
+
+    So before the long part of shutdown, hand a detached shell a stopwatch.
+    It survives this process hanging, being killed, or crashing. If we power
+    off normally it dies with the system and never fires.
+
+    Only armed AFTER the abort guard, so a shutdown that is correctly
+    cancelled mid-session can never be force-halted by it.
+    """
+    try:
+        subprocess.Popen(
+            ["/bin/sh", "-c",
+             f"sleep {seconds}; "
+             f"echo '[deadman] shutdown did not complete in {seconds}s -- forcing power off'; "
+             f"sync; sudo shutdown -h now; "
+             f"sleep 180; sync; sudo systemctl poweroff -ff"],
+            start_new_session=True)
+        log_info(f"Shutdown deadman armed ({seconds}s) -- the box will power off even if this script hangs.")
+    except Exception as e:
+        log_warn(f"Could not arm the shutdown deadman: {e}")
+
+
+def run_helper(script_path, label, timeout_s=120):
+    """
+    Run a helper script (UpdateDisplay, GPS, TimezoneUpdater) with a hard
+    timeout, killing it if it overruns.
+
+    Every one of these used to be `Popen(...).communicate()` with no timeout.
+    UpdateDisplay in particular can block forever inside the e-paper driver's
+    busy-pin wait, and it is called from the shutdown path -- so one wedged
+    display stopped the box ever powering off. Nothing here is important
+    enough to be worth that.
+    """
+    try:
+        process = subprocess.Popen(["python", script_path],
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except Exception as e:
+        log_warn(f"{label}: could not start {script_path}: {e}")
+        return
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        try:
+            process.communicate(timeout=10)
+        except Exception:
+            pass
+        log_warn(f"{label}: {script_path} exceeded {timeout_s}s and was killed -- continuing.")
+        return
+    if stderr and stderr.strip():
+        log_warn(f"{label} error: {stderr.decode(errors='replace').strip()}")
+    else:
+        print(stdout.decode(errors="replace"))
+
+
+def run_script(script_path, *args, show_output=True, timeout_s=180):
     """
     Run a Python script and optionally display its output.
     Extra arguments (args) are passed to the script.
@@ -1472,7 +1514,8 @@ def run_script(script_path, *args, show_output=True):
             cmd,
             capture_output=True,
             text=True,
-            check=True
+            check=True,
+            timeout=timeout_s,      # never unbounded: this runs during shutdown
         )
 
         if show_output:
@@ -1480,6 +1523,8 @@ def run_script(script_path, *args, show_output=True):
             if output:
                 print(output)
 
+    except subprocess.TimeoutExpired:
+        print(f"[!] {script_path} exceeded {timeout_s}s and was killed -- continuing.")
     except subprocess.CalledProcessError as e:
         print(f"[!] Error running {script_path}: {e.stderr.strip() if e.stderr else 'Unknown error'}")
 
@@ -1603,7 +1648,10 @@ def update_csv_setting(filename, setting_name, new_value):
             os.remove(tmp)
 
 def read_control(key, default=None):
-    path = os.path.join(CONTROL_ROOT, f"{key}.txt")
+    # _resolve_read prefers the ext4 copy and falls back to the legacy
+    # boot-partition one, so an upgrading box keeps its existing values and
+    # the shipped read-only files are still found. See mothbox_paths.py.
+    path = str(_resolve_read(os.path.join(CONTROL_ROOT, f"{key}.txt")))
     if not os.path.exists(path):
         return default
     vals = get_control_values(path)
@@ -1761,7 +1809,17 @@ if mothbox_hw is not None:
 
 # Figuring out the controls and settings
 controlsFpath="/boot/firmware/mothbox_custom/system"
-CONTROL_ROOT = os.path.join(controlsFpath, "controls")
+# Control files live on the JOURNALED ext4 root now -- see mothbox_paths.py.
+# The FAT boot partition also holds config.txt and the kernel, so a power cut
+# mid-write there can leave a box that will not boot at all (Oct 2026).
+try:
+    from mothbox_paths import STATE_ROOT as _STATE_ROOT, resolve_read as _resolve_read, ensure_state_dir as _ensure_state_dir
+    CONTROL_ROOT = str(_ensure_state_dir())
+except Exception as _e:
+    print(f"[Scheduler] mothbox_paths unavailable ({_e}); using the legacy boot-partition controls")
+    CONTROL_ROOT = os.path.join(controlsFpath, "controls")
+    def _resolve_read(p):
+        return p
 os.makedirs(CONTROL_ROOT, exist_ok=True)
 
 # Safe defaults -- will be properly set after switch reading
@@ -1812,14 +1870,7 @@ atomic_update_kv(os.path.join(CONTROL_ROOT, "timezone.txt"), "timezone", manTime
 # Check the timezone
 
 log_info(f"Timezone set to: {manTimezone} -- running TimezoneUpdater...")
-process = subprocess.Popen(['python', '/home/pi/Desktop/Mothbox/TimezoneUpdater.py'],
-                          stdout=subprocess.PIPE,
-                          stderr=subprocess.PIPE)
-stdout, stderr = process.communicate()
-if stderr:
-  log_warn(f"TimezoneUpdater error: {stderr.decode().strip()}")
-else:
-  print(stdout.decode())
+run_helper("/home/pi/Desktop/Mothbox/TimezoneUpdater.py", "TimezoneUpdater error")
 
 # See if we should manually set the time
 # Todo: fix the time setting algorithm
@@ -2134,14 +2185,7 @@ elif _gps_devs < 0:
     log_info("gpsd not reachable -- skipping the GPS read.")
 else:
     log_info(f"gpsd reports {_gps_devs} device(s) -- reading GPS, up to 10 seconds...")
-    process = subprocess.Popen(['python', '/home/pi/Desktop/Mothbox/GPS.py'],
-                              stdout=subprocess.PIPE,
-                              stderr=subprocess.PIPE)
-    stdout, stderr = process.communicate()
-    if stderr:
-      log_warn(f"GPS error: {stderr.decode().strip()}")
-    else:
-      print(stdout.decode())
+    run_helper("/home/pi/Desktop/Mothbox/GPS.py", "GPS error")
 
 # Toggle a mode where the flash lights are always on
 #enable_onlyflash()
@@ -2153,14 +2197,7 @@ else:
 log_section("LAUNCH -- Display")
 log_info("Updating ePaper display (if available)...")
 GPIO.cleanup()
-process = subprocess.Popen(['python', '/home/pi/Desktop/Mothbox/UpdateDisplay.py'],
-                          stdout=subprocess.PIPE,
-                          stderr=subprocess.PIPE)
-stdout, stderr = process.communicate()
-if stderr:
-  log_warn(f"Display error: {stderr.decode().strip()}")
-else:
-  print(stdout.decode())
+run_helper("/home/pi/Desktop/Mothbox/UpdateDisplay.py", "Display error")
 
 
 log_section("LAUNCH -- Final Mode")

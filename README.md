@@ -68,6 +68,23 @@ What differs per board, all handled inside `mothbox_hw.py`:
 
 # Changelog
 
+## 6.0.2 -- storage safety and bounded shutdown
+
+Both changes target the same field failure: Oct 2026, 3 of 6 deployed boxes ran one session, never woke again, and would not boot (solid green LED, no SD activity) -- a corrupted FAT boot partition.
+
+**Runtime state moved off the FAT boot partition.** `/boot/firmware` is FAT32 with no journal, and it also holds `config.txt`, `start*.elf`, `kernel*.img` and `overlays/` -- read by the bootloader before any Python runs. A power cut while rewriting a control file there can orphan clusters belonging to the kernel, and then the box will not boot at all; no Python fallback can help because no Python ever runs. The firmware was writing ~725 fsync'd files a night to it, ~590 from TakePhoto alone (`last_photo_time.txt` and `camera.txt`, once per photo).
+
+- New `mothbox_paths.py` defines the split. The boot partition now keeps only what humans edit (`mothbox_settings.csv`, `camera_settings.csv`, the HTML editors, `timezone_list.txt`, `reference_boot_config.txt`) plus the shipped read-only files (`softwareversion.txt`, `safetygb.txt`, `onlyflash.txt`, `defaults/`).
+- Everything the firmware generates now lives in `/var/lib/mothbox/state/` on journaled ext4.
+- No migration step, deliberately: writes always go to ext4, reads prefer ext4 and fall back to the legacy boot copy. A box upgrading in place keeps its name, schedule and calibration, and a firmware update to a shipped file is still picked up immediately.
+
+**Nothing in the shutdown path can hang any more.** A box that never powers off keeps its lights on, flattens the battery and then loses power mid-write, which is how the card got corrupted in the first place.
+
+- `epd2in13_V4.ReadBusy()` was an unbounded `while busy: sleep(10ms)`. A wedged panel hung `UpdateDisplay.py`, which the scheduler runs *during shutdown*. Now capped at 30 s.
+- Every `Popen(...).communicate()` (7 of them) replaced with `run_helper()`, which kills the child after 120 s.
+- `run_script()` (used for Diagnostics, including at shutdown) now has a 180 s timeout.
+- New `arm_shutdown_deadman()`: a detached shell timer armed after the abort guard that force-powers-off at 20 minutes, surviving this process hanging, being killed or crashing. It never fires on a correctly cancelled shutdown.
+
 ## 6.0.1 -- field-readiness fixes
 
 - Camera check asks the kernel whether the sensor bound to its driver before waiting. A bad ribbon now reports in under a second instead of after a timeout, a healthy camera never waits, and the retry only runs while the driver is genuinely mid-probe. This removes the false "camera missing" 8-blink that appeared on good boxes when the check ran ~16 s into boot, before the probe had finished.

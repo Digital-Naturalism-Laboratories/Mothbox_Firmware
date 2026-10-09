@@ -1,1 +1,1 @@
-softwareversion=6.0.1
+softwareversion=6.0.2

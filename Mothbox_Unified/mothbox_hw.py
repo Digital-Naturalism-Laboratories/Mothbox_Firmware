@@ -49,7 +49,18 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-CONTROL_ROOT  = Path("/boot/firmware/mothbox_custom/system/controls")
+# Control files live on the JOURNALED ext4 root now, not the FAT boot
+# partition -- see mothbox_paths.py for why (Oct 2026: FAT corruption bricked
+# deployed boxes). Writes go to STATE_ROOT; reads fall back to the old boot
+# location so a box upgrading in place keeps its existing values.
+try:
+    from mothbox_paths import STATE_ROOT as _STATE_ROOT, resolve_read as _resolve_read, ensure_state_dir as _ensure_state_dir
+    _ensure_state_dir()
+    CONTROL_ROOT = _STATE_ROOT
+except Exception:                       # module missing -> old behaviour, still runs
+    CONTROL_ROOT = Path("/boot/firmware/mothbox_custom/system/controls")
+    def _resolve_read(p):
+        return p
 HARDWARE_FILE = CONTROL_ROOT / "hardware.txt"
 SETTINGS_CSV  = Path("/boot/firmware/mothbox_custom/mothbox_settings.csv")
 
@@ -125,6 +136,26 @@ def _gpio():
     return GPIO
 
 
+def _out_many(pins, high):
+    """
+    Drive several pins in ONE pinctrl call ("pinctrl set 5,6,9,22 op dh").
+
+    Each `sudo pinctrl` is a fork + exec + PAM stack. attract_on() used to pay
+    that six times, and TakePhoto calls it four times per photo -- on a
+    thermally throttled Pi that added up to seconds of pure overhead per
+    frame, with the flash lit for all of it. Falls back to one call per pin
+    if the batched form is rejected.
+    """
+    pins = [p for p in pins if p is not None]
+    if not pins:
+        return
+    rc, _ = _run(["sudo", "pinctrl", "set", ",".join(str(p) for p in pins),
+                  "op", "dh" if high else "dl"])
+    if rc != 0:
+        for p in pins:
+            _out(p, high)
+
+
 def _out(pin, high):
     """
     Drive a pin as an output at the given level.
@@ -180,7 +211,7 @@ def _signed16(v):
 def _read_kv(path):
     out = {}
     try:
-        with open(path) as f:
+        with open(_resolve_read(path)) as f:
             for line in f:
                 if "=" in line:
                     k, v = line.split("=", 1)
@@ -426,12 +457,10 @@ def flash_is_on():
 def attract_on():
     if is_pro():
         rail_12v(True)
-        for pin in (PRO["CH3"], PRO["CH2"], PRO["CH1"], PRO["CHEXT"]):
-            _out(pin, True)
-        _run(["sudo", "pinctrl", "set", str(PRO["CHEXT_PCB_BUG_PIN"]), "op", "dh"])
+        _out_many([PRO["CH3"], PRO["CH2"], PRO["CH1"], PRO["CHEXT"],
+                   PRO["CHEXT_PCB_BUG_PIN"]], True)
     else:
-        _out(DIY["RELAY_ATTRACT_A"], False)
-        _out(DIY["RELAY_ATTRACT_B"], False)
+        _out_many([DIY["RELAY_ATTRACT_A"], DIY["RELAY_ATTRACT_B"]], False)
         # Relay inputs float LOW (= relay ON) before anything drives them, so
         # make the flash relay's OFF state explicit unless the flash is in use.
         if not flash_is_on():
@@ -447,16 +476,14 @@ def attract_off(respect_flash=True):
     """
     flash_busy = respect_flash and flash_is_on()
     if is_pro():
-        for pin in (PRO["CH3"], PRO["CH2"], PRO["CH1"], PRO["CHEXT"]):
-            _out(pin, False)
-        _run(["sudo", "pinctrl", "set", str(PRO["CHEXT_PCB_BUG_PIN"]), "op", "dl"])
+        _out_many([PRO["CH3"], PRO["CH2"], PRO["CH1"], PRO["CHEXT"],
+                   PRO["CHEXT_PCB_BUG_PIN"]], False)
         if flash_busy:
             print("Flash is on -- leaving the shared 12V rail up for it")
         else:
             rail_12v(False)
     else:
-        _out(DIY["RELAY_ATTRACT_A"], True)
-        _out(DIY["RELAY_ATTRACT_B"], True)
+        _out_many([DIY["RELAY_ATTRACT_A"], DIY["RELAY_ATTRACT_B"]], True)
         if flash_busy:
             print("Flash is on -- leaving its relay alone")
         else:
@@ -482,13 +509,11 @@ def flash_off():
 def all_lights_off():
     """Everything dark, rails down. Used by DEBUG mode and shutdown paths."""
     if is_pro():
-        for pin in (PRO["CH3"], PRO["CH2"], PRO["CH1"], PRO["CHEXT"], PRO["FLASH"]):
-            _out(pin, False)
-        _run(["sudo", "pinctrl", "set", str(PRO["CHEXT_PCB_BUG_PIN"]), "op", "dl"])
+        _out_many([PRO["CH3"], PRO["CH2"], PRO["CH1"], PRO["CHEXT"], PRO["FLASH"],
+                   PRO["CHEXT_PCB_BUG_PIN"]], False)
         rail_12v(False)
     else:
-        for pin in (DIY["RELAY_ATTRACT_A"], DIY["RELAY_ATTRACT_B"], DIY["RELAY_FLASH"]):
-            _out(pin, True)
+        _out_many([DIY["RELAY_ATTRACT_A"], DIY["RELAY_ATTRACT_B"], DIY["RELAY_FLASH"]], True)
     print("All Lights Off")
 
 
@@ -496,12 +521,10 @@ def all_lights_on():
     """Everything lit. Used by PARTY mode."""
     if is_pro():
         rail_12v(True)
-        for pin in (PRO["CH3"], PRO["CH2"], PRO["CH1"], PRO["CHEXT"], PRO["FLASH"]):
-            _out(pin, True)
-        _run(["sudo", "pinctrl", "set", str(PRO["CHEXT_PCB_BUG_PIN"]), "op", "dh"])
+        _out_many([PRO["CH3"], PRO["CH2"], PRO["CH1"], PRO["CHEXT"], PRO["FLASH"],
+                   PRO["CHEXT_PCB_BUG_PIN"]], True)
     else:
-        for pin in (DIY["RELAY_ATTRACT_A"], DIY["RELAY_ATTRACT_B"], DIY["RELAY_FLASH"]):
-            _out(pin, False)
+        _out_many([DIY["RELAY_ATTRACT_A"], DIY["RELAY_ATTRACT_B"], DIY["RELAY_FLASH"]], False)
     print("All Lights On")
 
 

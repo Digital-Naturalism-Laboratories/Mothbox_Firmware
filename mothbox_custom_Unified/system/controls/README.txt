@@ -1,15 +1,20 @@
-Only three control files ship with the firmware:
+Only these ship here, and the firmware never writes to this folder:
   softwareversion.txt  - bump by hand when releasing (see zzzz_NewImageChecklist.txt)
   safetygb.txt         - minimum free GB on the SD card before backups purge old photos
   onlyflash.txt        - reserved (not currently implemented)
-plus defaults/ (restore copies of the settings CSVs).
+  defaults/            - restore copies of the settings CSVs
 
-Every other file in this folder is PER-BOX STATE that the box writes itself:
-name, mode, hours/minutes/weekdays/runtime, photo_interval, nextwake, switches,
-hardware, timezone/utc, lat/lon/gpstime, calibration (aflensposition, autogain,
-exposuretime, lastcalibration), last_photo_time, last_backup_time,
-shutdown_enabled. Scheduler.py, GPS.py and TakePhoto.py recreate them at boot.
+As of firmware 6.0.2 every file the box GENERATES lives on the journaled ext4
+root at /var/lib/mothbox/state/ instead of here: name, mode, switches,
+schedule, nextwake, hardware, camera, timezone/utc, GPS, calibration and the
+last-photo / last-backup timestamps.
 
-Do not commit those files to the repo: copying this folder onto a box would
-overwrite its live name and schedule state until the next reboot (the
-'strongAbanto' incident, Sept 2026).
+Why: this partition is FAT32 with no journal, and it also holds config.txt and
+the kernel. A power cut while the firmware rewrote a control file here could
+corrupt the whole partition and leave a box that would not boot at all. In Oct
+2026 that took out 3 of 6 deployed boxes. The firmware was writing ~725 files a
+night here; it now writes none.
+
+Old copies of those files may still be sitting in this folder on an upgraded
+box. They are read only as a fallback until each value is written once, and
+are then ignored. They are safe to leave alone.
