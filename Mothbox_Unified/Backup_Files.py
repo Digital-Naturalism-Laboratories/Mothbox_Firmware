@@ -147,7 +147,7 @@ def read_control(path: Path, key: str, default=None):
     """
     # Prefer the ext4 copy; fall back to the legacy boot-partition one so a
     # box upgrading in place keeps its existing value, and so the shipped
-    # read-only files (softwareversion / safetygb / onlyflash) are found.
+    # read-only files (softwareversion / safetygb) are found.
     path = _resolve_read(path)
     if not path.exists():
         return default

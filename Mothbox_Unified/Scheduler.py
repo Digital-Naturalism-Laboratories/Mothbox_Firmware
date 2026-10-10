@@ -1840,8 +1840,6 @@ use_switch_schedule = False
 switch_schedule = {}
 
 usersettingsFpath="/boot/firmware/mothbox_custom/mothbox_settings.csv"
-default_settingspath = "/boot/firmware/mothbox_custom/system/default_settings.txt"
-default_backup_controlspaths="/boot/firmware/mothbox_custom/system/default_backup_controls.txt"
 
 
 

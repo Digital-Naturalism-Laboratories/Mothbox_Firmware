@@ -26,7 +26,7 @@ BOOT (FAT, user-facing, read-mostly by the firmware):
     mothbox_settings.csv, camera_settings.csv   <- the whole point of a
                                                    Windows/Mac-readable partition
     the HTML editors, timezone_list.txt, reference_boot_config.txt
-    system/controls/{softwareversion,safetygb,onlyflash}.txt   <- shipped, never written
+    system/controls/{softwareversion,safetygb}.txt            <- shipped, never written
     system/controls/defaults/                                  <- shipped restore copies
 
 STATE (ext4, journaled, written constantly, never read by a human):
@@ -75,7 +75,7 @@ def resolve_read(path):
 
     Prefers the ext4 copy. Falls back to the legacy boot copy when the ext4
     one does not exist yet -- which covers both a box upgrading in place and
-    the shipped files (softwareversion / safetygb / onlyflash) that are only
+    the shipped files (softwareversion / safetygb) that are only
     ever read. Returns the original path if neither exists, so callers still
     get their "missing file" default.
     """
