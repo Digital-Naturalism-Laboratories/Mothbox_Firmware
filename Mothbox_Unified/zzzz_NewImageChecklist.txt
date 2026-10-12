@@ -19,6 +19,31 @@
 	sudo truncate -s 0 *.log
 
 5) delete photo and photos_backed_up and logs
+5a) WIPE PER-BOX STATE (new in 6.0.2 -- this is NOT on the boot partition):
+	sudo rm -f /var/lib/mothbox/state/*.txt
+	Everything in there is generated and regenerates on first boot. If you skip
+	this, the image ships with THIS box's identity baked in:
+	  lat.txt / lon.txt  - your lab's GPS fix, embedded in every recipient's photo EXIF
+	  name.txt           - only harmless while autoname=true
+	  hardware.txt       - a cached 'pro' on an image that may be flashed to a DIY
+	  aflensposition.txt - a lens calibration for a different lens
+	  nextwake / mode / switches / last_photo_time - stale schedule state
+5b) Remove test leftovers and root-owned caches:
+	sudo rm -rf /home/pi/Desktop/Mothbox/__pycache__ /home/pi/Desktop/Mothbox/tests/__pycache__
+	rm -f /home/pi/thermtest.log /home/pi/fat_*.txt
+5c) Per-box identity OUTSIDE the Mothbox folder:
+	sudo rm -f /etc/ssh/ssh_host_*                 # else every box shares ssh host keys
+	sudo systemctl enable regenerate_ssh_host_keys.service
+	rm -f /home/pi/.bash_history
+	KEEP the saved wifi connections -- these are shared field networks and are
+	meant to ship with the image so a box can be reached in the field without
+	setup. Their passwords are readable in plaintext from
+	/etc/NetworkManager/system-connections/ by anyone holding the image, so only
+	ever save networks you are willing to distribute. Never save a personal or
+	institutional network on a box that will be imaged.
+5d) The FAT partition must contain exactly 11 files:
+	sudo find /boot/firmware/mothbox_custom -type f | sort
+	No .DS_Store, no ._* AppleDouble files, no generated *.txt in system/controls/.
 6) empty trash
 7) copy scripts to USB to send to github
 8) Check default schedule
