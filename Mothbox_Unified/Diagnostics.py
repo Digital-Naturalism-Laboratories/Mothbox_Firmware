@@ -127,6 +127,7 @@ if HW == "pro":
 
 run_script("/home/pi/Desktop/Mothbox/scripts/read_power.py", show_output=True)
 run_script("/home/pi/Desktop/Mothbox/scripts/read5V.py", show_output=True)
+run_script("/home/pi/Desktop/Mothbox/scripts/readThrottled.py", show_output=True)
 run_script("/home/pi/Desktop/Mothbox/scripts/readCPUTemperature.py", show_output=True)
 
 if HW == "pro":

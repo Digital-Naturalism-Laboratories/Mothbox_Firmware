@@ -61,6 +61,7 @@ _PATTERNS = {
     "current_a":    (re.compile(r"Current: ([-\d.]+) A\b", re.M),           float),
     "current_ma":   (re.compile(r"Current: ([-\d.]+) mA\b", re.M),          float),
     "pi_5v":        (re.compile(r"^5v to pi: ([-\d.]+)", re.M),             float),
+    "throttled":    (re.compile(r"^throttled: (0x[0-9a-fA-F]+)", re.M),     str),
 }
 
 
@@ -95,7 +96,7 @@ def read_latest_diagnostics(log_dir=LOG_DIR, now=None):
     running anything. Reads only the tail of each Diagnostics*.log and picks
     the newest run across them. Returns {} if nothing usable is found.
     Keys: time (ISO), age_s, and any of cpu_temp_c, board_temp_c, lux,
-    light_sensor, vin_v, current_a, pi_5v, label.
+    light_sensor, vin_v, current_a, pi_5v, throttled, label.
     """
     best = None
     try:
