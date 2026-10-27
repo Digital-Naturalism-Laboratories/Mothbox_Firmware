@@ -78,6 +78,7 @@ from eeprom_safe import (
 
 # First-boot filesystem-expansion guard -- must live alongside this script too
 from firstboot_guard import wait_for_firstboot_settle, filesystem_needs_expansion
+import hipower
 
 # Hardware abstraction (Mothbox Pro PCB vs DIY relay build) -- alongside too
 try:
@@ -1740,6 +1741,56 @@ def read_switch_schedule(switch_vals):
 #                       Main Code
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~###
 
+def run_hi_power_loop(schedule_source, start_in_window):
+    """HI POWER: never power off; lights and photos only inside scheduled windows."""
+    def update_display():
+        try:
+            GPIO.cleanup()
+        except Exception:
+            pass
+        run_helper("/home/pi/Desktop/Mothbox/UpdateDisplay.py", "Display error")
+
+    def window_start():
+        hipower.set_idle(False)
+        if mothbox_hw is not None:
+            mothbox_hw.attract_on()        # cron would within a minute; do it now
+        update_display()
+
+    def window_end():
+        hipower.set_idle(True)             # cron's next TakePhoto / Attract_On exit early
+        # Same end-of-window routine as a normal shutdown: wait for a photo in
+        # progress, lights off, final backup. The boot lock keeps cron's own
+        # Backup_Files.py from running alongside the final one.
+        with open(BOOT_LOCK, "w") as f:
+            f.write("hi power: end-of-window backup\n")
+        try:
+            final_backup_before_shutdown()
+            if mothbox_hw is not None:
+                mothbox_hw.all_lights_off()
+        finally:
+            if os.path.exists(BOOT_LOCK):
+                os.remove(BOOT_LOCK)
+        update_display()
+
+    def switch_change():
+        if mothbox_hw is not None:
+            mothbox_hw.all_lights_off()
+        log_info("HI POWER switched off -- rebooting so the normal startup takes over.")
+        os.system("sudo reboot")
+
+    def read_switches():
+        return mothbox_hw.read_switches() if mothbox_hw is not None else {"Active": 1, "HI": 1}
+
+    hipower.run(
+        in_window=lambda: is_now_in_schedule(schedule_source, runtime),
+        read_switches=read_switches,
+        on_window_start=window_start,
+        on_window_end=window_end,
+        on_switch_change=switch_change,
+        start_in_window=start_in_window,
+        log=log_info,
+    )
+
 def log_section(title):
     """Prints a clearly delineated section header for the log."""
     width = 60
@@ -2162,7 +2213,7 @@ atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
 # TODO - Implement these modes I haven't coded for yet
 # for now, temp solution
 
-if mode=="HI_POW" or mode=="QR_PROG":
+if mode=="QR_PROG":
     mode="ACTIVE"
     atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
     #set_Mode(controlsFpath, mode)
@@ -2242,6 +2293,21 @@ if mode == "ACTIVE":
         run_shutdown_pi5_FAST()
         quit()
 
+if mode == "HI_POW":
+    # Never STANDBY: stay awake with wifi on. Outside a window, set the idle
+    # flag BEFORE the boot lock is released below, so the first cron tick
+    # cannot switch the lights on.
+    hipow_schedule = switch_schedule if use_switch_schedule else settings
+    hipow_in_window = is_now_in_schedule(hipow_schedule, runtime)
+    hipower.set_idle(not hipow_in_window)
+    if hipow_in_window:
+        log_ok("HI POWER: within schedule window -- lights and photos on.")
+    else:
+        log_info("HI POWER: outside schedule window -- staying awake and connected, "
+                 "lights and photos wait for the next window.")
+        if camera_ok:
+            run_cmd("python /home/pi/Desktop/Mothbox/scripts/blink_standby.py 2 0.125")
+
 log_section("CONFIGURATION -- Sensors & Diagnostics")
 run_script("/home/pi/Desktop/Mothbox/Diagnostics.py", "Startup_Check", show_output=True)
 
@@ -2291,6 +2357,8 @@ elif mode == "PARTY":
     # stopcron()
 elif mode == "ACTIVE":
     log_ok("Mode is ACTIVE -- session running.")
+elif mode == "HI_POW":
+    log_ok("Mode is HI POWER -- wifi on, never sleeps, lights and photos follow the schedule.")
 else:
     log_warn(f"Unrecognised mode: {mode}")
 
@@ -2306,7 +2374,10 @@ if os.path.exists(BOOT_LOCK):
 
 
 log_section("LAUNCH -- Session Timer")
-if runtime > 0 and mode not in ("DEBUG", "PARTY"):
+if mode == "HI_POW":
+    log_info("HI POWER: no shutdown -- watching the schedule and the HI switch.")
+    run_hi_power_loop(hipow_schedule, hipow_in_window)
+elif runtime > 0 and mode not in ("DEBUG", "PARTY"):
     enable_shutdown()
     time.sleep(0.05)
     log_info(f"Session will run for {runtime} minute(s) then shut down.")

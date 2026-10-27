@@ -28,6 +28,10 @@ BOOT_LOCK = "/run/boot_script_running"
 if os.path.exists(BOOT_LOCK):
     sys.exit(0)
 
+# HI POWER mode, outside a scheduled window: no photos (see hipower.py)
+if os.path.exists("/run/mothbox_hipow_idle"):
+    sys.exit(0)
+
 #######---- One TakePhoto at a time ------
 # cron fires every minute, but a full-resolution capture can take longer than
 # that on a throttled Pi. Overlapping runs fight over the camera (the loser

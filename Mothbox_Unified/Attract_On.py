@@ -12,6 +12,9 @@ import sys
 BOOT_LOCK = "/run/boot_script_running"
 if os.path.exists(BOOT_LOCK):
     sys.exit(0)
+# HI POWER mode, outside a scheduled window: stay dark (see hipower.py)
+if os.path.exists("/run/mothbox_hipow_idle"):
+    sys.exit(0)
 #-----------------------------##
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
