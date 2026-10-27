@@ -1842,6 +1842,49 @@ switch_schedule = {}
 usersettingsFpath="/boot/firmware/mothbox_custom/mothbox_settings.csv"
 
 
+# --- First boot: the filesystem is still expanding to fill the SD card ---
+# Handle this FIRST, before the camera check, the status blinks, diagnostics
+# or a session can light anything up. The shutdown functions also guard
+# against powering off mid-resize, but they run at the END of startup, so on a
+# fresh card the box used to flash its lights (and, inside its schedule window,
+# start a whole session) while it expanded, and the "please wait" screen only
+# appeared if the resize happened to still be running by then.
+# The boot lock is still held here, so cron's Attract_On / TakePhoto stay off.
+try:
+    _expanding = filesystem_needs_expansion()
+except Exception as e:
+    log_warn(f"Could not check first-boot filesystem expansion ({e}); assuming done.")
+    _expanding = False
+if _expanding:
+    log_section("FIRST BOOT -- Filesystem Expanding")
+    log_warn("Root filesystem not yet expanded to fill the SD card -- one long flash, "
+             "'please wait' on the display, then wait for the resize to finish.")
+    _active = 1
+    if mothbox_hw is not None:
+        try:
+            mothbox_hw.all_lights_off()
+            _active = int(mothbox_hw.read_switches().get("Active", 1))
+        except Exception as e:
+            log_warn(f"Could not read switches before the expansion signal ({e}); assuming ACTIVE.")
+    # One long flash so someone watching knows the box is alive and busy --
+    # distinct from the 2 quick blinks (OK) and 8 slow blinks (camera warning).
+    # OFF means OFF: nothing may light up, so skip it when the Active switch is off.
+    if _active:
+        run_cmd("python /home/pi/Desktop/Mothbox/scripts/blink_standby.py 1 3")
+    else:
+        log_info("Active switch is off -- skipping the expansion flash (nothing may light up in OFF).")
+    try:
+        GPIO.cleanup()
+    except Exception:
+        pass
+    # UpdateDisplay.py notices the expansion itself and draws the wait screen.
+    run_helper("/home/pi/Desktop/Mothbox/UpdateDisplay.py", "UpdateDisplay error")
+    # The first-boot script may reboot the Pi during this wait; that is fine,
+    # the next boot lands back here until the expansion is done.
+    wait_for_firstboot_settle(log=log_warn)
+    log_ok("Filesystem expansion finished -- continuing a normal startup.")
+# --- End first-boot expansion handling ---
+
 
 log_section("STARTUP -- Configuration")
 
