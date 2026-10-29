@@ -80,7 +80,7 @@ python3 -c "from PIL import _imagingft" 2>/dev/null \
 python3 -c "import piexif, numpy, psutil, smbus2, crontab, schedule" 2>/dev/null \
   && ok "python modules (piexif, numpy, psutil, smbus2, crontab, schedule)" \
   || bad "a required python module is missing -- see the traceback: python3 -c 'import piexif, numpy, psutil, smbus2, crontab, schedule'"
-for f in mothbox_hw.py mothbox_exif.py Scheduler.py TakePhoto.py UpdateDisplay.py eeprom_safe.py firstboot_guard.py DebugMode.py Party.py; do
+for f in mothbox_hw.py mothbox_exif.py Scheduler.py TakePhoto.py UpdateDisplay.py display_render.py eeprom_safe.py firstboot_guard.py DebugMode.py Party.py graphics/fonts/Galmuri/Galmuri11-Bold.ttf graphics/display/mothbox_logo_bw.png; do
   [ -f "/home/pi/Desktop/Mothbox/$f" ] || bad "missing /home/pi/Desktop/Mothbox/$f -- rsync did not complete"
 done
 

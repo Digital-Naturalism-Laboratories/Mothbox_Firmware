@@ -60,35 +60,11 @@ os.environ.setdefault("GPIOZERO_PIN_FACTORY", "rpigpio")
 
 from waveshare_epd import epd2in13_V4
 import time
-from PIL import Image,ImageDraw,ImageFont
 import traceback
 
-# ---------------------------------------------------------------------------
-# Font loading that cannot leave a blank screen
-# ---------------------------------------------------------------------------
-# load_font() needs Pillow's _imagingft C extension. If that is
-# missing (Sept 2026: an apt full-upgrade left python3-pil without it) every
-# font call raises AFTER the panel has already been cleared to white, so the
-# box shows a blank display and says nothing about why. Falling back to
-# Pillow's built-in bitmap font keeps the layout ugly but READABLE, which is
-# what matters when the only thing you have in the field is the screen.
-_FONT_FALLBACK_WARNED = False
-
-def load_font(path, size):
-    global _FONT_FALLBACK_WARNED
-    try:
-        return ImageFont.truetype(path, size)
-    except Exception as e:
-        if not _FONT_FALLBACK_WARNED:
-            print(f"[UpdateDisplay] Cannot load TrueType fonts ({e}). "
-                  f"Falling back to the built-in bitmap font -- the display will "
-                  f"look wrong but still be readable. Fix with: "
-                  f"sudo apt install --reinstall python3-pil libfreetype6")
-            _FONT_FALLBACK_WARNED = True
-        try:
-            return ImageFont.load_default(size=size)   # Pillow >= 10.1 can scale it
-        except Exception:
-            return ImageFont.load_default()
+# Every screen is drawn by display_render.py (pure PIL, no hardware), so the
+# layout can be iterated on a computer with tools/display_mock.py.
+import display_render
 
 
 # --- First-boot filesystem-expansion check (see firstboot_guard.py) ---
@@ -176,33 +152,6 @@ def read_control(path: Path, key: str, default=None):
     return default
 
 
-def sort_hours_night_order(hours_str):
-    """
-    Reorders a schedule hours string so it reads in the order the hours
-    happen over a night: noon (12) first, through midnight, ending at 11am.
-    Keeps whatever separator the control file used, and returns the string
-    unchanged if it can't be parsed as a list of hours.
-    """
-    if not hours_str:
-        return hours_str
-
-    sep = None
-    for candidate in (";", ",", " "):
-        if candidate in hours_str:
-            sep = candidate
-            break
-
-    parts = [p.strip() for p in hours_str.split(sep)] if sep else [hours_str.strip()]
-
-    try:
-        hrs = [int(p) for p in parts if p != ""]
-    except ValueError:
-        return hours_str
-
-    hrs.sort(key=lambda h: (h - 12) % 24)
-    return (sep if sep else ";").join(str(h) for h in hrs)
-
-
 # ---- Load Controls ----
 
 
@@ -249,38 +198,10 @@ if filesystem_needs_expansion is not None:
     if still_expanding:
         print("[UpdateDisplay] Root filesystem not yet expanded -- showing wait screen.")
         try:
+            image = display_render.render_wait()     # logo + "unpacking" notice
             epd = epd2in13_V4.EPD()
-            logging.info("init and Clear (first-boot wait screen)")
+            logging.info("init (first-boot wait screen)")
             epd.init()
-            epd.Clear(0xFF)
-
-            image = Image.new('1', (epd.height, epd.width), 255)  # landscape, matches main layout
-            draw = ImageDraw.Draw(image)
-            draw.fontmode = "1"
-
-            font_wait_big = load_font('/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson_Next/AtkinsonHyperlegibleNext-Bold.otf', 16
-            )
-            font_wait_small = load_font('/home/pi/Desktop/Mothbox/graphics/fonts/clear-sans/TTF/ClearSans-Medium.ttf', 12
-            )
-
-            lines_big = [
-                "FILE SYSTEM",
-                "EXPANDING ON",
-                "FIRST BOOT,",
-                "PLEASE WAIT",
-            ]
-            y = 6
-            for line in lines_big:
-                draw.text((4, y), line, font=font_wait_big, fill=0)
-                y += 20
-
-            y += 4
-            draw.text((4, y), "This can take a", font=font_wait_small, fill=0)
-            y += 14
-            draw.text((4, y), "few minutes. Do not", font=font_wait_small, fill=0)
-            y += 14
-            draw.text((4, y), "unplug the device.", font=font_wait_small, fill=0)
-
             epd.display(epd.getbuffer(image))
             logging.info("Display Go to Sleep... (first-boot wait screen)")
             epd.sleep()
@@ -316,7 +237,7 @@ time.sleep(6) # need to wait for USB drives to mount
 
 
 # Check for external drives
-external_info = ""
+usb_drives = []
 for part in psutil.disk_partitions():
     # 1. Only look at /media or /mnt
     # 2. Safety: Ignore anything that is an internal SD card (mmcblk)
@@ -329,15 +250,14 @@ for part in psutil.disk_partitions():
             if total_ext == 0:
                 continue 
 
-            free_ext = usage.free // (2**30)
-            used_ext = total_ext - free_ext
             photos_folder = os.path.join(part.mountpoint, "photos_backup_" + computerName)
             photo_count = 0
             
             if os.path.isdir(photos_folder):
                 photo_count = count_photos(photos_folder)
                 
-            external_info += f"USB: {used_ext} GB/{total_ext}GB used\n          {photo_count} photos\n" 
+            usb_drives.append(dict(free_gb=usage.free / 2**30, total_gb=usage.total / 2**30,
+                                   photos=photo_count))
 
         except PermissionError:
             continue
@@ -345,9 +265,7 @@ for part in psutil.disk_partitions():
 
 #internal disk
 total, used, free = shutil.disk_usage("/")
-total_gb = total // (2**30)
-free_gb = free // (2**30)
-used_gb = total_gb-free_gb
+free_gb = free / 2**30
 photo_count_int = count_photos("/home/pi/Desktop/Mothbox/photos_backedup")+ count_photos("/home/pi/Desktop/Mothbox/photos")
 
 
@@ -364,7 +282,6 @@ except (ValueError, TypeError):
 
 # Schedule Stuff
 hours = read_control(CONTROL_ROOT / "hours.txt", "hours", "errorhours")
-hours = sort_hours_night_order(hours)
 
 #weekdays=control_values.get("weekdays", "error")
 weekdays = read_control(CONTROL_ROOT / "weekdays.txt", "weekdays", "errorweekdays")
@@ -424,170 +341,59 @@ else:
     percent = -1  # will trigger the UNKNOWN display branch...
 print(f"Voltage: {voltage:.2f}V  →  {percent:.0f}%")
 
+# ------------- Drawing --------------------#
+# Render BEFORE touching the panel: if drawing fails, the panel is never
+# cleared and the previous (stale but useful) screen stays up.
+alerts = []
+camera_state = read_control(CONTROL_ROOT / "camera.txt", "camera", "ok")
+if str(camera_state).strip().lower() == "missing":
+    alerts.append("CAMERA DISCONNECTED")
+    print("[UpdateDisplay] camera.txt says missing -- drawing the alert bar")
+
+info = dict(
+    name=computerName, mode=mode, hw=hw_name, version=softwareversion,
+    battery_pct=None if voltage == -1 or percent < 0 else percent,
+    next_wake=nexttime, updated=time.time(), utc_offset=UTCoff,
+    sd_free_gb=free_gb, sd_photos=photo_count_int, usb=usb_drives,
+    weekdays=weekdays, hours=hours, minutes=mins, runtime=runtime, interval=photo_interval,
+    lat=lat, lon=lon, alerts=alerts,
+)
+
+# The Mothbox logo is shown on the first update after each boot. It takes the
+# place of the clear-to-white refresh this script always did before drawing,
+# so it costs no extra refresh -- only LOGO_HOLD_S of looking at it. /run is
+# a tmpfs, so the flag is gone again after the next reboot.
+LOGO_FLAG = "/run/mothbox_display_logo_shown"
+LOGO_HOLD_S = 2
+
 try:
+    image = display_render.render_status(info)
+    logo = None
+    if not os.path.exists(LOGO_FLAG):
+        logo = display_render.render_logo(hw_name, softwareversion)
+
     logging.info("Mothbox Epaper Display")
-    
     epd = epd2in13_V4.EPD()
     logging.info("init and Clear")
     epd.init()
-    epd.Clear(0xFF)
-
-    # Drawing on the image
-    #fontHeaders = load_font('/home/pi/Desktop/Mothbox/graphics/fonts/scientifica/ttf/scientificaBold.ttf', 13)
-    fontHeaders = load_font('/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson_Next/AtkinsonHyperlegibleNext-Regular.otf', 13)
-    #fontHeaders = load_font('/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson/Atkinson-Hyperlegible-Regular-102.ttf', 12)
-    fontHeadersSmall = load_font('/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson_Next/AtkinsonHyperlegibleNext-Bold.otf', 9)
-
-    
-    font8 = load_font('/home/pi/Desktop/Mothbox/graphics/fonts/clear-sans/TTF/ClearSans-Medium.ttf', 8)
-
-    font_bigs=load_font('/home/pi/Desktop/Mothbox/graphics/fonts/clear-sans/TTF/ClearSans-Bold.ttf',8)
-    
-    font_robotosemicon10=load_font('/home/pi/Desktop/Mothbox/graphics/fonts/scientifica/ttf/scientificaBold.ttf',13)
-    font_scientifica22=load_font('/home/pi/Desktop/Mothbox/graphics/fonts/scientifica/ttf/scientificaBold.ttf',22)
-    
-    font_Atkinson19 = load_font('/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson_Next/AtkinsonHyperlegibleNext-Bold.otf', 19)
-
-    font_Mediumtext=load_font('/home/pi/Desktop/Mothbox/graphics/fonts/clear-sans/TTF/ClearSans-Medium.ttf',14)
-    font_Mediumtext12=load_font('/home/pi/Desktop/Mothbox/graphics/fonts/clear-sans/TTF/ClearSans-Regular.ttf',12)
-
-    font_roboto10=load_font('/home/pi/Desktop/Mothbox/graphics/fonts/scientifica/ttf/scientificaBold.ttf',12)
+    if logo is not None:
+        epd.display(epd.getbuffer(logo))
+        try:
+            with open(LOGO_FLAG, "w") as f:
+                f.write("shown\n")
+        except OSError as e:
+            print(f"[UpdateDisplay] could not write {LOGO_FLAG} ({e}) -- logo will show again next time")
+        time.sleep(LOGO_HOLD_S)
+    else:
+        epd.Clear(0xFF)
 
     logging.info("E-paper refresh")
     epd.init()
-    
-    #print(epd.width) #h 250px w 122
-    # Setup for portrait mode
-    #image = Image.new('1', (epd.width, epd.height), 255)  # Portrait: width=122, height=250
-    
-    #print(epd.width) #h 250px w 122
-    # Setup for landscape mode
-    image = Image.new('1', (epd.height, epd.width), 255)  # Portrait: width=122, height=250
-    
-    draw = ImageDraw.Draw(image)
-    draw.fontmode="1"
-    #Start Drawing stuff to the display
-    
-    colW = 128
-    rowH=13
-    #computerName="canineDorado" #example longest name
-    # Name and State
-    # Draw text elements (adjust coordinates to suit portrait layout)
-    #draw.text((2,7), "NAME: ", font=font8, fill=0)
-    draw.text((2, -2), "" + computerName, font=font_Atkinson19, fill=0)
-
-    draw.text((colW,5), "state: ", font=fontHeaders, fill=0)
-    draw.text((colW+4,-2), "     "+mode, font=font_Atkinson19, fill=0)
-
-    #next wake
-    draw.text((2, rowH+3), 'next wake:', font=fontHeaders, fill=0)
-    draw.text((1,rowH+8),  time.strftime('%Y-%m-%d %H:%M', time.localtime(nexttime)), font=font_Mediumtext, fill=0)
-
-    draw.line([(0,2*rowH+12),(epd.height,2*rowH+12)], fill = 0,width = 1)
-    draw.line([(epd.height/2,.5*rowH+12),(epd.height/2,epd.width)], fill = 0,width = 1)
-    
-
-    #Schedule Stuff
-
-    draw.text((2, 3*rowH), "last update: ", font=fontHeaders, fill=0)
-    #draw.text((0, 4*rowH), time.strftime('%m-%d %H:%M:%S') + "UTC:"+str(UTCoff), font=fontHeaders, fill=0)
-    draw.text((0, 4*rowH-5), time.strftime('%m-%d %H:%M') + " UTC:"+str(UTCoff), font=font_Mediumtext12, fill=0)
-
-    draw.line([(0,4*rowH+12),(epd.height/2,4*rowH+12)], fill = 0,width = 1)
-
-    draw.text((2, 5*rowH), 'RUN', font=fontHeadersSmall, fill=0)
-    draw.text((2, 5.6*rowH), 'TIME ', font=fontHeadersSmall, fill=0)
-    draw.text((2, 5.4*rowH), '                mins', font=fontHeadersSmall, fill=0)
-
-    draw.text((28, 5.2*rowH), runtime, font=fontHeaders, fill=0)
-    
-    draw.text((78, 5.4*rowH), 'INT  '+photo_interval+" min", font=fontHeadersSmall, fill=0)
-    #draw.text((30, 5.3*rowH), '                ' + photo_interval+ " mins", font=fontHeaders, fill=0)
-
-    draw.text((2, 6.5*rowH), 'DAYS ' , font=fontHeadersSmall, fill=0)
-    draw.text((2, 6.3*rowH), '         ' + weekdays, font=fontHeaders, fill=0)
-
-    draw.text((2, 7.5*rowH), 'HOURS ', font=fontHeadersSmall, fill=0)
-    draw.text((2, 7.3*rowH), '         '+hours, font=fontHeaders, fill=0)
-
-    
-    if(mins!="0"):
-        draw.text((2, 8.5*rowH), 'MINUTES ', font=fontHeadersSmall, fill=0)
-        draw.text((2, 8.3*rowH), '                ' + mins, font=fontHeaders, fill=0)
-
-
-
-    #Battery Stuff
-    draw.line([(0,.5*rowH+12),(epd.height,.5*rowH+12)], fill = 0,width = 1)
-
-    draw.text((colW+2, 1.8*rowH), f"BATTERY", font=fontHeaders, fill=0)
-    
-    if(voltage==-1):
-        draw.text((colW+2, 2*rowH), f"               UNKNOWN", font=fontHeaders, fill=0)
-    else:
-        draw.text((colW+6, 1.4*rowH), f"          {percent:.0f}%", font=font_Atkinson19 , fill=0)
-
-    # DISK
-    # Add disk space info
-    draw.text((colW, 3*rowH+2), f'SD:{used_gb}GB/{total_gb}GB used\n          {photo_count_int} photos', font=fontHeaders, fill=0)
-
-    # Starting Y position for external info (after previous lines)
-    y_pos=5*rowH+3
-    if external_info:
-        for line in external_info.strip().split('\n'):
-            draw.text((colW, y_pos), line, font=fontHeaders, fill=0)
-            y_pos += 12  # line spacing
-    else:
-        draw.text((colW+2, y_pos), "No USB found", font=fontHeaders, fill=0)
-
-    #GPS stuff
-    draw.text((colW+2, 7.5*rowH), 'GPS: '+str(lat) +","+str(lon), font=fontHeaders, fill=0)
-    #draw.text((+2, 9*rowH), '        '+str(lon), font=font_robotosemicon10, fill=0)
-    
-    draw.line([(epd.height/2,6.5*rowH+12),(epd.height,6.5*rowH+12)], fill = 0,width = 1)
-
-
-    #Version Stuff
-    draw.line([(epd.height/2,8.7*rowH),(epd.height,8.7*rowH)], fill = 0,width = 1)
-
-    # Body name at the left of the footer, version right-aligned to the panel
-    # edge so the two can never collide whatever the name's width.
-    draw.text((colW, 8.7*rowH), 'MOTHBOX ' + hw_name.upper(), font=font_bigs, fill=0)
-    version_txt = 'v' + softwareversion
-    try:
-        version_w = font_bigs.getlength(version_txt)
-    except AttributeError:                       # very old Pillow
-        version_w = draw.textsize(version_txt, font=font_bigs)[0]
-    draw.text((epd.height - 2 - version_w, 8.7*rowH), version_txt, font=font_bigs, fill=0)
-
-
-    # ---- Error banner, drawn LAST so it sits on top of everything ----
-    # A blink pattern only helps someone standing there at the right moment;
-    # e-ink holds the message until it is fixed. Inverted (white on black) so
-    # it cannot be mistaken for normal content.
-    camera_state = read_control(CONTROL_ROOT / "camera.txt", "camera", "ok")
-    if str(camera_state).strip().lower() == "missing":
-        msg = "ERROR: CAMERA DISCONNECTED"
-        font_err = load_font('/home/pi/Desktop/Mothbox/graphics/fonts/Atkinson_Next/AtkinsonHyperlegibleNext-Bold.otf', 13)
-        try:
-            tw = font_err.getlength(msg)
-        except AttributeError:
-            tw = draw.textsize(msg, font=font_err)[0]
-        bh = 19
-        by = int(3.2 * rowH)
-        draw.rectangle([(0, by), (epd.height, by + bh)], fill=0)          # solid black bar, full width
-        draw.text(((epd.height - tw) / 2, by + 3), msg, font=font_err, fill=255)
-        print("[UpdateDisplay] camera.txt says missing -- drew the error banner")
-
-    #image = image.rotate(180) # rotate
-    # Send to display
     epd.display(epd.getbuffer(image))
-    
 
     logging.info("Display Go to Sleep...")
     epd.sleep()
 
-        
 except IOError as e:
     # SPI/GPIO failures land here (spidev.open raises OSError/IOError when
     # /dev/spidev0.0 is missing, e.g. SPI turned off in config.txt after an

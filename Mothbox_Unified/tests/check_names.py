@@ -46,6 +46,11 @@ class Collector(ast.NodeVisitor):
             self.bound.add(arg.arg)
         self.generic_visit(n)
     visit_AsyncFunctionDef = visit_FunctionDef
+    def visit_Lambda(self, n):
+        a = n.args
+        for arg in list(a.args)+list(a.posonlyargs)+list(a.kwonlyargs)+([a.vararg] if a.vararg else [])+([a.kwarg] if a.kwarg else []):
+            self.bound.add(arg.arg)
+        self.generic_visit(n)
     def visit_ClassDef(self, n):
         self.bound.add(n.name); self.generic_visit(n)
     def visit_Assign(self, n):
