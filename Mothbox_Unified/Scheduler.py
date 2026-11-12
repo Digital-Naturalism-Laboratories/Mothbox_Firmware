@@ -18,7 +18,7 @@ EEPROM SAFETY NOTE (see eeprom_safe.py, must be alongside this script)
 `rpi-eeprom-config --apply` does not write the EEPROM immediately -- it stages
 an update that is flashed by recovery.bin on the NEXT boot. The old version of
 this script staged that update and then powered the device off on the SAME
-boot (via run_shutdown_pi5 / run_shutdown_pi5_FAST + RTC wake-alarm), which
+boot (via the shutdown functions + RTC wake-alarm), which
 could interrupt the SPI flash mid-write and corrupt the bootloader -- exactly
 the "reflash the bootloader, put the SD card back in, works" symptom.
 
@@ -30,20 +30,16 @@ This version:
   2. Verifies the live/running config after that reboot before declaring
      success, with bounded retries and an onboard-LED error blink if the
      flash genuinely won't take.
-  3. Guards both shutdown paths so the device will reboot-to-apply instead of
+  3. Guards power_off() so the device will reboot-to-apply instead of
      powering off whenever an EEPROM flash is still staged and pending.
 --------------------------------------------------------------------------
 """
 
-###------Boot Lock-------------###
-#create boot lock. This stops other scripts that might get called by cron from running
-
-BOOT_LOCK = "/run/boot_script_running"
-
-# create lock
-with open(BOOT_LOCK, "w") as f:
-    f.write("booting\n")
-
+###------ Session state: booting ------###
+# Nothing cron starts -- lights, photos, backups -- runs until the session
+# state says so (see session.py). Written first, before the slow imports.
+import session
+session.write_state(session.BOOTING)
 #-------------------#
 
 
@@ -60,10 +56,6 @@ import shutil
 import glob
 import numpy as np
 import sys
-import schedule
-
-import crontab
-from crontab import CronTab
 import logging
 import re
 import RPi.GPIO as GPIO
@@ -78,7 +70,7 @@ from eeprom_safe import (
 
 # First-boot filesystem-expansion guard -- must live alongside this script too
 from firstboot_guard import wait_for_firstboot_settle, filesystem_needs_expansion
-import hipower
+import schedule_core
 
 # Hardware abstraction (Mothbox Pro PCB vs DIY relay build) -- alongside too
 try:
@@ -533,27 +525,6 @@ SETTING_DEFAULTS = {
     "bat_20perVolts": 1.0,
 }
 
-def load_settings_for_wakeup():
-    """
-    Safely loads settings needed to calculate the next wakeup alarm.
-    Falls back to SETTING_DEFAULTS if the CSV is missing or corrupt.
-    Never returns None.
-    """
-    settings = load_settings(usersettingsFpath)
-
-    if settings is None:
-        print("[!] WARNING: Could not load settings for wakeup -- using defaults")
-        settings = dict(SETTING_DEFAULTS)
-
-    settings.pop("runtime", None)  # runtime not needed for wakeup scheduling
-    settings.pop("utc_off", None)  # comes from controls, not CSV
-
-    # Normalize semicolons to commas
-    for key, value in settings.items():
-        if isinstance(value, str) and ";" in value:
-            settings[key] = value.replace(";", ",")
-
-    return settings
 
 def _open_csv_robust(filename):
     """
@@ -752,90 +723,8 @@ def get_control_values(filename):
     return control_values
 
 
-def schedule_shutdown(minutes):
-    """Schedules the execution of shutdown after the specified delay in minutes."""
-    if rpiModel == 4:
-        "pi4 no longer suppored"
-        schedule.every(minutes).minutes.do(run_shutdown_pi5)
-    if rpiModel == 5:
-        schedule.every(minutes).minutes.do(run_shutdown_pi5)
-
-    try:
-        while True:
-            #control_values = get_control_values("/boot/firmware/mothbox_custom/system/controls.txt")
-            shutdown_enabled = read_control("shutdown_enabled", "true").lower() == "true"
-            if not shutdown_enabled:
-                print("Shutdown scheduling stopped.")
-                break
-
-            schedule.run_pending()
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("Shutdown scheduling stopped.")
 
 
-def should_abort_shutdown(cron_source, runtime_minutes, grace_minutes=1):
-    """
-    Checks whether the device is still inside a valid scheduled session window.
-
-    This guards against the edge case where a slow SD card or a runtime that
-    exceeds the gap between scheduled wakeups causes shutdown to fire slightly
-    after the next slot's start time.  Without this check, calculate_next_event
-    would skip that slot and the device would wake an hour (or more) late.
-
-    Args:
-        cron_source:     dict with 'minute', 'hour', 'weekday' keys (same format
-                         as build_cron_expression expects).
-        runtime_minutes: configured session length in minutes.
-        grace_minutes:   minimum window past a slot's start time that is still
-                         considered "in session" (default: 1 minute).  Catches
-                         slow-SD-card delays even when runtime < slot gap.
-
-    Returns:
-        Remaining minutes (float) if shutdown should be postponed -- the caller
-        should reschedule shutdown for that many minutes from now.
-        None if it is safe to proceed with shutdown immediately.
-    """
-    now = datetime.datetime.now()
-
-    minutes      = parse_int_list(cron_source.get("minute",  "0"))
-    hours        = parse_int_list(cron_source.get("hour",    "20"))
-    weekdays_raw = parse_int_list(cron_source.get("weekday", "1,2,3,4,5,6,7"))
-
-    # Convert CSV weekday (1-7, 1=Monday) -> Python weekday (0-6, 0=Monday)
-    weekdays = [(d - 1) % 7 for d in weekdays_raw]
-
-    now_weekday = now.weekday()
-
-    # Check today and yesterday to catch sessions that started before midnight
-    for day_offset in (0, -1):
-        day     = now.date() + datetime.timedelta(days=day_offset)
-        weekday = (now_weekday + day_offset) % 7
-
-        if weekday not in weekdays:
-            continue
-
-        for h in hours:
-            for m in minutes:
-                start = datetime.datetime.combine(day, datetime.time(hour=h, minute=m))
-                # Use whichever is larger: the configured runtime, or the grace
-                # floor.  This means a 1-minute slip on a 59-minute session is
-                # caught, AND a runtime longer than the slot gap is also caught.
-                effective_end = start + datetime.timedelta(
-                    minutes=max(runtime_minutes, grace_minutes)
-                )
-
-                if start <= now < effective_end:
-                    remaining = (effective_end - now).total_seconds() / 60.0
-                    print(
-                        f"[!]  Shutdown requested at {now.strftime('%H:%M:%S')} but "
-                        f"session window {start.strftime('%H:%M')}-"
-                        f"{effective_end.strftime('%H:%M')} is still active. "
-                        f"Rescheduling shutdown in {remaining:.1f} min."
-                    )
-                    return remaining
-
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -847,8 +736,8 @@ TAKEPHOTO_DRAIN_TIMEOUT_S = 120      # longest we wait for an in-flight capture 
 
 def wait_for_takephoto_to_finish(timeout_s=TAKEPHOTO_DRAIN_TIMEOUT_S):
     """
-    The boot lock stops cron from launching any NEW TakePhoto.py, but one may
-    already be mid-capture when shutdown fires (HDR stacks take a while).
+    The session state stops cron from launching any NEW TakePhoto.py, but one
+    may already be mid-capture when a window ends (HDR stacks take a while).
     Backing up at that moment would copy a truncated JPEG to the USB drive and
     then move the original out of photos/. Poll until it exits.
 
@@ -868,29 +757,15 @@ def wait_for_takephoto_to_finish(timeout_s=TAKEPHOTO_DRAIN_TIMEOUT_S):
     return False
 
 
-def final_backup_before_shutdown():
+def stop_capture_and_lights():
     """
-    End-of-session safety net so the box powers down fully backed up.
+    The first half of ending a window: let a photo in progress finish, then
+    switch the attract lights off. Never raises.
 
-    Why this exists: Backup_Files.py runs from cron but throttles itself to
-    once per backup_interval minutes (default 5). run_shutdown_pi5() re-arms
-    the boot lock as its very first action, which makes every later
-    cron-launched Backup_Files.py exit immediately -- so any photo taken after
-    the last throttled backup used to sit in photos/ until the NEXT session.
-
-    Ordering:
-      1. wait for an in-flight TakePhoto.py to finish  (partial-JPEG hazard)
-      2. attract lights off                            (don't burn 12V while copying)
-      3. Backup_Files.py --final                       (bypasses boot lock + throttle)
-
-    Bounded by FINAL_BACKUP_TIMEOUT_S. The wake alarm has already been set by
-    the time this runs, so the worst case is powering off with a partial copy
-    on the USB drive -- which the next backup simply overwrites (copy2 with
-    dirs_exist_ok), and the originals stay in photos/ because the move to
-    photos_backedup/ only happens after a completed copy. Never raises.
+    The session state has already stopped cron from starting any NEW
+    TakePhoto.py, but one may be mid-capture (HDR stacks take a while), and
+    backing up at that moment would copy a truncated JPEG.
     """
-    log_section("SHUTDOWN -- Final Backup")
-
     # 1. Let an in-flight capture finish. Its flash/attract cycle needs the
     #    lights, so they stay on for (at most) TAKEPHOTO_DRAIN_TIMEOUT_S here.
     try:
@@ -898,15 +773,13 @@ def final_backup_before_shutdown():
             log_ok("No TakePhoto.py running -- photo capture has stopped.")
         else:
             log_warn(f"TakePhoto.py still running after {TAKEPHOTO_DRAIN_TIMEOUT_S}s "
-                     f"-- proceeding with backup anyway.")
+                     f"-- proceeding anyway.")
     except Exception as e:
         log_warn(f"Could not check for a running TakePhoto.py ({e}) -- continuing.")
 
-    # 2. Lights OFF, unconditionally, before any copying starts. The attract
-    #    lights are the main power drain, and a backup can take minutes. This
-    #    is deliberately outside the backup try-block so nothing can skip it,
-    #    and it retries once because a copy with the lights on is the one
-    #    outcome we never want.
+    # 2. Lights OFF, unconditionally. The attract lights are the main power
+    #    drain, and a backup can take minutes. It retries once because a copy
+    #    with the lights on is the one outcome we never want.
     lights_off = False
     for attempt in (1, 2):
         try:
@@ -922,8 +795,31 @@ def final_backup_before_shutdown():
     if lights_off:
         log_ok("Attract lights off.")
     else:
-        log_warn("Could not confirm attract lights are off -- backing up anyway; "
-                 "power-off will cut them shortly.")
+        log_warn("Could not confirm attract lights are off -- carrying on; "
+                 "power-off will cut them if the box is going down.")
+
+
+def final_backup_before_shutdown():
+    """
+    End-of-session safety net so the box powers down fully backed up.
+
+    Backup_Files.py runs from cron but throttles itself to once per
+    backup_interval minutes (default 5), and cron's runs stop as soon as the
+    session state leaves active/waiting -- so any photo taken after the last
+    throttled backup used to sit in photos/ until the NEXT session.
+
+    Ordering:
+      1. wait for an in-flight TakePhoto.py to finish  (partial-JPEG hazard)
+      2. attract lights off                            (don't burn 12V while copying)
+      3. Backup_Files.py --final                       (bypasses state check + throttle)
+
+    Bounded by FINAL_BACKUP_TIMEOUT_S and covered by the shutdown deadman. A
+    partial copy on the USB drive is simply overwritten next time (copy2 with
+    dirs_exist_ok), and the originals stay in photos/ because the move to
+    photos_backedup/ only happens after a completed copy. Never raises.
+    """
+    log_section("SHUTDOWN -- Final Backup")
+    stop_capture_and_lights()
 
     # 3. The backup itself.
     try:
@@ -950,10 +846,78 @@ def final_backup_before_shutdown():
         log_warn(f"Final backup step failed: {e} -- continuing shutdown.")
 
 
-def run_shutdown_pi5():
+def start_background_backup():
     """
-    Shut down the raspberry pi
+    End of a window the box stays up after (a short gap, or HI POWER): start
+    the final backup and let it run while the box waits, dark, for the next
+    window. Backup_Files.py itself makes sure only one backup runs at a time.
+    Never raises.
     """
+    try:
+        with open("/home/pi/Desktop/Mothbox/logs/Backup_log.txt", "a") as log_file:
+            subprocess.Popen(["python3", "/home/pi/Desktop/Mothbox/Backup_Files.py", "--final"],
+                             stdout=log_file, stderr=subprocess.STDOUT, start_new_session=True)
+        log_info("Final backup of the window started in the background.")
+    except Exception as e:
+        log_warn(f"Could not start the background backup ({e}) -- cron's backup will catch up.")
+
+
+FALLBACK_WAKE_AFTER_DEADMAN_S = 120   # the fallback alarm fires this long after the deadman would
+
+
+def next_wake_epoch():
+    """The wake alarm for the next window -- or an hour from now if the schedule never leaves a gap."""
+    nxt = schedule_core.next_window_start(sched, datetime.datetime.now())
+    if nxt is None:
+        return int(time.time()) + 3600
+    return schedule_core.to_epoch(schedule_core.wake_time(nxt))
+
+
+def write_session_info(phase, plan=None):
+    """
+    What the display's 'when' box shows (display_render.when_field):
+      active  -> SESSION ENDS  (session_end; -1 = always on)
+      waiting -> STARTS        (next_start)
+      anything else            -> NEXT WAKE, from nextwake.txt
+    """
+    end = start = 0
+    if plan is not None:
+        if plan.state == schedule_core.ACTIVE:
+            end = -1 if plan.session_end is None else schedule_core.to_epoch(plan.session_end)
+        if plan.next_start is not None:
+            start = schedule_core.to_epoch(plan.next_start)
+    try:
+        atomic_write(os.path.join(CONTROL_ROOT, "session.txt"),
+                     f"phase={phase}\nsession_end={end}\nnext_start={start}\n")
+    except Exception as e:
+        log_warn(f"Could not write session.txt for the display: {e}")
+
+
+def power_off(from_session=False, off_mode=False):
+    """
+    The one way the box turns itself off: STANDBY at boot, the end of a
+    session, and OFF.
+
+    Returns "powered_off" once `shutdown -h now` has been issued -- or
+    "aborted" if, by the time everything else is done, the next window is so
+    close that staying up is the right call (never in OFF mode: OFF is off).
+
+    The wake alarm is set LAST, immediately before `shutdown -h now`. 6.0.x
+    set it first and then ran a final backup that can take 15 minutes, so with
+    a short gap the alarm could fire while the box was still on, get used up,
+    and the box powered off with nothing left to wake it. The fallback alarm
+    set at the start only matters if the deadman has to force the power-off:
+    it fires just after the deadman would.
+    """
+    log_section("SHUTDOWN")
+    session.write_state(session.SHUTTING_DOWN)
+
+    fallback = max(next_wake_epoch(),
+                   int(time.time()) + SHUTDOWN_DEADMAN_S + FALLBACK_WAKE_AFTER_DEADMAN_S)
+    clear_wakeup_alarm()
+    set_wakeup_alarm(fallback, record=False)
+    deadman = arm_shutdown_deadman()
+
     # --- EEPROM safety guard: never power off with a staged flash pending ---
     # If eeprom_safe staged a bootloader update earlier this boot (or a prior
     # boot) and it hasn't been applied/verified yet, a halt here could
@@ -962,22 +926,18 @@ def run_shutdown_pi5():
     if should_reboot_before_poweroff():
         print("[!] EEPROM flash still pending -- rebooting to apply instead of powering off.")
         reboot_to_apply()
-        return
+        return "powered_off"
     # --- End EEPROM guard ---
 
     # --- Guard: don't power off while the first-boot filesystem resize may
     # still be in flight. A fresh, shrunk image's root filesystem is much
     # smaller than the physical SD card until this completes; cutting power
-    # mid-resize can corrupt the root filesystem. This does NOT delay the
-    # wake-alarm write below -- that already happens before power-off and
-    # only depends on clock/timezone/RTC, so scheduled wakeups stay on time
-    # regardless of resize status.
+    # mid-resize can corrupt the root filesystem.
     #
     # We update the ePaper display with a "please wait" message BEFORE
-    # blocking -- otherwise the wait is silent on-screen (nothing gets drawn
-    # until UpdateDisplay.py normally runs later, by which point the resize
-    # has already finished). Since e-ink holds its image with zero power,
-    # this message will sit on the display for the whole wait. ---
+    # blocking -- otherwise the wait is silent on-screen. Since e-ink holds
+    # its image with zero power, this message will sit on the display for the
+    # whole wait. ---
     if filesystem_needs_expansion():
         log_warn("Filesystem not yet expanded -- updating ePaper display with a "
                  "'please wait' message before blocking on the resize.")
@@ -986,161 +946,50 @@ def run_shutdown_pi5():
     wait_for_firstboot_settle(log=log_warn)
     # --- End first-boot guard ---
 
-    # create lock
-    with open(BOOT_LOCK, "w") as f:
-        f.write("booting\n")
-
-    #-------------------#
-
-    # --- Guard: don't shut down if we're still inside a scheduled session window ---
-    cron_source = switch_schedule if use_switch_schedule else load_settings_for_wakeup()
-    current_runtime = int(read_control("runtime", runtime))
-    remaining_minutes = should_abort_shutdown(cron_source, current_runtime)
-    if remaining_minutes is not None:
-        print(f"Shutdown aborted -- rescheduling in {remaining_minutes:.1f} min.")
-        # Clear the old fired job and schedule a new one for the remaining window.
-        # This ensures the device shuts down at the true end of the session rather
-        # than running forever.
-        schedule.clear()
-        schedule.every(remaining_minutes).minutes.do(run_shutdown_pi5)
-        return
-    # --- End guard ---
-
-    arm_shutdown_deadman()
-
-    log_section("SHUTDOWN -- Graceful")
-
-    # SCHEDULE WAKEUP AGAIN FOR SECURITY
-    settings = load_settings_for_wakeup()
-    cron_source = switch_schedule if use_switch_schedule else settings
-    cron_expression = build_cron_expression(cron_source)
-    log_info(f"Cron expression: {cron_expression}")
-
-    next_epoch_time = calculate_next_event(cron_expression, utc_off)
-    clear_wakeup_alarm()
-    set_wakeup_alarm(next_epoch_time)
-    log_ok(f"Next wakeup scheduled for: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(next_epoch_time))}")
-
-    # Photo capture is locked out (boot lock above) and the wake alarm is safely
-    # set -- now flush whatever the throttled cron backup didn't get to.
-    final_backup_before_shutdown()
-
-    ''' # Cutting out GPS check at shutdown, feels not really needed
-    # GPS check / 10 second delay
-    print("Checking GPS (if available) for 10 seconds")
-    process = subprocess.Popen(['python', '/home/pi/Desktop/Mothbox/GPS.py'],
-                              stdout=subprocess.PIPE,
-                              stderr=subprocess.PIPE)
-    stdout, stderr = process.communicate()
-    if stderr:
-      print(f"Error running script: {stderr.decode()}")
+    if from_session:
+        final_backup_before_shutdown()
     else:
-      print(stdout.decode())
-    '''
-    # Change the mode to "STANDBY" (if we got to this point, the board must have been "ACTIVE" and so now we are switching to "STANDBY". This is because OFF mode will just use the fast shutdown script, and DEBUG modes will never shut down
+        run_mode_script("/home/pi/Desktop/Mothbox/Attract_Off.py")   # nothing ran, nothing to back up
 
-    # Write mode to controls.txt
-    #set_Mode("/boot/firmware/mothbox_custom/system/controls.txt", "STANDBY")
-    
-    mode="STANDBY"
-    atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
-    
-    #Epaper
-    #Update the Epaper screen if it is available 
+    if not off_mode:
+        atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", "STANDBY")
+    write_session_info("standby")
+    atomic_update_kv(os.path.join(CONTROL_ROOT, "nextwake.txt"), "nextwake", next_wake_epoch())
+
     GPIO.cleanup()
-
     log_info("Updating ePaper display before shutdown (if available)...")
     run_helper("/home/pi/Desktop/Mothbox/UpdateDisplay.py", "UpdateDisplay error")
+    if from_session:
+        run_script("/home/pi/Desktop/Mothbox/Diagnostics.py", "Shutdown_Check", show_output=True)
 
-    log_info("Shutting down in ~4 seconds...")
-    time.sleep(1)
-    run_script("/home/pi/Desktop/Mothbox/Diagnostics.py", "Shutdown_Check", show_output=True)
+    # Decide again, with the time it is NOW: the backup alone can take minutes.
+    # Same lookahead as the session loop, or a power-off that took under 3 s
+    # would still see the closing seconds of its own window and stay up.
+    if not off_mode:
+        plan = schedule_core.plan_at(
+            sched, datetime.datetime.now() + datetime.timedelta(seconds=session.LOOKAHEAD_S))
+        if plan.state != schedule_core.SLEEP:
+            log_ok("The next window is close now -- staying up instead of powering off.")
+            disarm_shutdown_deadman(deadman)
+            atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", "ACTIVE")
+            write_session_info("waiting" if plan.state == schedule_core.WAITING else "active", plan)
+            clear_wakeup_alarm()
+            set_wakeup_alarm(next_wake_epoch())
+            return "aborted"
 
-    time.sleep(3)
-
-    os.system("sudo shutdown -h now")
-
-
-
-def run_shutdown_pi5_FAST():
-    """
-    Shut down the raspberry pi
-    """
-    log_section("SHUTDOWN -- Fast")
-
-    # --- EEPROM safety guard: never power off with a staged flash pending ---
-    if should_reboot_before_poweroff():
-        print("[!] EEPROM flash still pending -- rebooting to apply instead of powering off.")
-        reboot_to_apply()
-        return
-    # --- End EEPROM guard ---
-
-    # --- Guard: don't power off while the first-boot filesystem resize may
-    # still be in flight (see run_shutdown_pi5 for the full explanation).
-    # This covers the OFF-mode path and the "outside schedule -> STANDBY"
-    # path too, since both call into this function.
-    #
-    # Show the "please wait" message on the ePaper display BEFORE blocking --
-    # otherwise the wait is invisible on-screen. ---
-    if filesystem_needs_expansion():
-        log_warn("Filesystem not yet expanded -- updating ePaper display with a "
-                 "'please wait' message before blocking on the resize.")
-        GPIO.cleanup()
-        run_helper("/home/pi/Desktop/Mothbox/UpdateDisplay.py", "UpdateDisplay error")
-    wait_for_firstboot_settle(log=log_warn)
-    # --- End first-boot guard ---
-
-    # Re-lock the other scripts (don't want it to start taking a photo before shutting down)
-    ###------Boot Lock-------------###
-    #create boot lock. This stops other scripts that might get called by cron from running
-
-    BOOT_LOCK = "/run/boot_script_running"
-
-    # create lock
-    with open(BOOT_LOCK, "w") as f:
-        f.write("booting\n")
-
-    #-------------------#
-
-    # --- Guard: don't shut down if we're still inside a scheduled session window ---
-    # Note: OFF mode bypasses this check intentionally -- if the user flipped the
-    # Active switch off, they want the device to shut down regardless of schedule.
-    current_mode = read_control("mode", "ACTIVE")
-    if current_mode != "OFF":
-        cron_source = switch_schedule if use_switch_schedule else load_settings_for_wakeup()
-        current_runtime = int(read_control("runtime", runtime))
-        remaining_minutes = should_abort_shutdown(cron_source, current_runtime)
-        if remaining_minutes is not None:
-            print(f"Shutdown aborted -- rescheduling in {remaining_minutes:.1f} min.")
-            schedule.clear()
-            schedule.every(remaining_minutes).minutes.do(run_shutdown_pi5_FAST)
-            return
-    # --- End guard ---
-    
-    arm_shutdown_deadman()
-
-    #Stop big lights from turning on!
-    offlight_script_path = "/home/pi/Desktop/Mothbox/Attract_Off.py"
-    # Call the script using subprocess.run
-    run_mode_script(offlight_script_path)
-    
-    # SCHEDULE WAKEUP AGAIN FOR SECURITY
-    settings = load_settings_for_wakeup()
-    cron_source = switch_schedule if use_switch_schedule else settings
-    cron_expression = build_cron_expression(cron_source)
-    log_info(f"Cron expression: {cron_expression}")
-
-    next_epoch_time = calculate_next_event(cron_expression, utc_off)
+    # The wake alarm, LAST: nothing slow may run between this and the halt.
+    wake = next_wake_epoch()
     clear_wakeup_alarm()
-    set_wakeup_alarm(next_epoch_time)
-    log_ok(f"Next wakeup scheduled for: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(next_epoch_time))}")
-
-    GPIO.cleanup()
-    log_info("Updating ePaper display before shutdown (if available)...")
-    run_helper("/home/pi/Desktop/Mothbox/UpdateDisplay.py", "UpdateDisplay error")
-
-    # subprocess.run(["python", "/home/pi/Desktop/Mothbox/TurnEverythingOff.py"])
+    set_wakeup_alarm(wake)
+    log_ok(f"Wake alarm set for {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(wake))} "
+           f"-- powering off now.")
     os.system("sudo shutdown -h now")
+    return "powered_off"
+
+
+
+
+
 
 
 
@@ -1354,24 +1203,6 @@ def modify_hours(data, offsett_value, key="hour"):
 
     return data  # Return the modified dictionary (or original if no modification)
 
-def calculate_next_event(cron_expression, utcOff):
-    cron = CronTab(user="root")
-    job = cron.new(command="echo hello_world")
-    job.setall(cron_expression)
-
-    # Work entirely in UTC
-    now_utc = datetime.datetime.now(datetime.timezone.utc)
-
-    # Convert UTC -> LOCAL using known offset
-    now_local = now_utc + datetime.timedelta(hours=float(utcOff))
-
-    schedule = job.schedule(date_from=now_local)
-    next_local = schedule.get_next()
-
-    # Convert back LOCAL -> UTC
-    next_utc = next_local - datetime.timedelta(hours=float(utcOff))
-
-    return int(next_utc.timestamp())
 
 def clear_wakeup_alarm():
     """
@@ -1384,7 +1215,7 @@ def clear_wakeup_alarm():
 
 MIN_WAKE_LEAD_S = 90   # never arm an alarm that could pass while we are still shutting down
 
-def set_wakeup_alarm(epoch_time):
+def set_wakeup_alarm(epoch_time, record=True):
     """
     Sets the wakeup alarm for the Raspberry Pi using /sys/class/rtc/rtc0/wakealarm.
 
@@ -1396,6 +1227,8 @@ def set_wakeup_alarm(epoch_time):
 
     Args:
         epoch_time: A unix timestamp representing the next wakeup time.
+        record: False for power_off()'s fallback alarm, so nextwake.txt (and
+                the display) keep showing the real next wake.
     """
     epoch_time = int(epoch_time)
     now_sys = int(time.time())
@@ -1434,7 +1267,8 @@ def set_wakeup_alarm(epoch_time):
         print(f"[!] Could not read back wake alarm: {e}")
     #Write to controls here!
     #set_nextWakeinControls("/boot/firmware/mothbox_custom/system/controls.txt",epoch_time)
-    atomic_update_kv(os.path.join(CONTROL_ROOT, "nextwake.txt"), "nextwake", epoch_time)
+    if record:
+        atomic_update_kv(os.path.join(CONTROL_ROOT, "nextwake.txt"), "nextwake", epoch_time)
 
 
 # Must exceed the WORST CASE of everything the shutdown path can legitimately
@@ -1457,11 +1291,12 @@ def arm_shutdown_deadman(seconds=SHUTDOWN_DEADMAN_S):
     It survives this process hanging, being killed, or crashing. If we power
     off normally it dies with the system and never fires.
 
-    Only armed AFTER the abort guard, so a shutdown that is correctly
-    cancelled mid-session can never be force-halted by it.
+    Returns the timer's Popen (or None): power_off() hands it to
+    disarm_shutdown_deadman() if it decides to stay up after all, so a
+    shutdown that is correctly cancelled can never be force-halted by it.
     """
     try:
-        subprocess.Popen(
+        proc = subprocess.Popen(
             ["/bin/sh", "-c",
              f"sleep {seconds}; "
              f"echo '[deadman] shutdown did not complete in {seconds}s -- forcing power off'; "
@@ -1469,11 +1304,25 @@ def arm_shutdown_deadman(seconds=SHUTDOWN_DEADMAN_S):
              f"sleep 180; sync; sudo systemctl poweroff -ff"],
             start_new_session=True)
         log_info(f"Shutdown deadman armed ({seconds}s) -- the box will power off even if this script hangs.")
+        return proc
     except Exception as e:
         log_warn(f"Could not arm the shutdown deadman: {e}")
+        return None
 
 
-def run_helper(script_path, label, timeout_s=120):
+def disarm_shutdown_deadman(proc):
+    """Cancel a deadman from arm_shutdown_deadman() (it runs in its own process group)."""
+    if proc is None:
+        return
+    try:
+        os.killpg(proc.pid, 15)
+        log_info("Shutdown deadman disarmed.")
+    except Exception as e:
+        log_warn(f"Could not disarm the shutdown deadman ({e}) -- it may still power the box off; "
+                 f"the fallback wake alarm brings it back.")
+
+
+def run_helper(script_path, label, timeout_s=120, args=()):
     """
     Run a helper script (UpdateDisplay, GPS, TimezoneUpdater) with a hard
     timeout, killing it if it overruns.
@@ -1485,7 +1334,7 @@ def run_helper(script_path, label, timeout_s=120):
     enough to be worth that.
     """
     try:
-        process = subprocess.Popen(["python", script_path],
+        process = subprocess.Popen(["python", script_path, *args],
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except Exception as e:
         log_warn(f"{label}: could not start {script_path}: {e}")
@@ -1551,10 +1400,10 @@ def run_mode_script(script_path):
       * "python3 <script>", never bare "<script>". Running it bare needs the
         executable bit, and an rsync from a machine where the file is not
         marked executable silently strips it.
-      * never raises. This is called from the LAUNCH -- Final Mode block, which
-        sits just before the boot lock is released; an exception here used to
-        leave the lock in place, and every cron-launched TakePhoto / backup
-        then exited quietly, disabling the box with no obvious cause.
+      * never raises. This is called from the LAUNCH -- Final Mode block, just
+        before the hand-over to the session; an exception there used to stop
+        the session from ever starting, and every cron-launched TakePhoto /
+        backup then exited quietly, disabling the box with no obvious cause.
     """
     try:
         subprocess.run(["python3", script_path], check=False)
@@ -1562,64 +1411,9 @@ def run_mode_script(script_path):
         log_warn(f"Could not run {script_path}: {e}")
 
 
-# Check if now is in schedule 
 
-def parse_int_list(value):
-    if isinstance(value, int):
-        return [value]
-    if isinstance(value, str):
-        return [int(v.strip()) for v in value.split(",") if v.strip()]
-    return []
 
-EARLY_WAKE_GRACE_MIN = 3   # a wake that lands this much before a slot still counts as "in session"
 
-def is_now_in_schedule(settings, runtime_minutes, grace_minutes=EARLY_WAKE_GRACE_MIN):
-    """
-    True if now falls inside a scheduled session window.
-
-    grace_minutes: an RTC wake that lands slightly before its slot (clock
-    skew, or a boot that reaches this check a few seconds early) must count
-    as IN the window. Without it the box decides it is outside, re-arms an
-    alarm for the very same slot -- seconds away -- and starts shutting
-    down; that alarm then fires during the shutdown, is consumed, and the
-    box powers off with nothing pending. It never wakes again.
-    """
-    now = datetime.datetime.now()
-    grace = datetime.timedelta(minutes=grace_minutes)
-
-    minutes = parse_int_list(settings.get("minute", ""))
-    hours = parse_int_list(settings.get("hour", ""))
-    weekdays_raw = parse_int_list(settings.get("weekday", ""))
-
-    # Convert CSV weekday (1-7) -> Python weekday (0-6)
-    weekdays = [(d - 1) % 7 for d in weekdays_raw]
-
-    now_weekday = now.weekday()
-
-    # Try all scheduled start times for tomorrow, today and yesterday:
-    # yesterday for cross-midnight runtimes, tomorrow so a wake that lands
-    # a few seconds before a 00:00 slot is inside the grace window.
-    for day_offset in (1, 0, -1):
-        day = now.date() + datetime.timedelta(days=day_offset)
-        weekday = (now_weekday + day_offset) % 7
-
-        if weekday not in weekdays:
-            continue
-
-        for h in hours:
-            for m in minutes:
-                start = datetime.datetime.combine(
-                    day,
-                    datetime.time(hour=h, minute=m)
-                )
-                end = start + datetime.timedelta(minutes=runtime_minutes)
-
-                if start - grace <= now < end:
-                    if now < start:
-                        print(f"[i] Woke {int((start - now).total_seconds())}s before the {start.strftime('%H:%M')} slot -- treating as in session.")
-                    return True
-
-    return False
 
 
 def update_csv_setting(filename, setting_name, new_value):
@@ -1672,11 +1466,6 @@ def read_control(key, default=None):
     return vals.get(key, default)
 
 
-def build_cron_expression(settings):
-    minute  = settings.get("minute",  "0")
-    hour    = settings.get("hour",    "20")
-    weekday = settings.get("weekday", "1,2,3,4,5,6,7")
-    return f"{minute} {hour} * * {weekday}"
 
 
 def read_switch_schedule(switch_vals):
@@ -1734,45 +1523,110 @@ def read_switch_schedule(switch_vals):
         "minute":  "0",
         "hour":    hour_str,
         "weekday": weekday_str,
-        "runtime": 59,
+        "runtime": schedule_core.DEFAULT_RUNTIME_MIN,
     }
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~####
 #                       Main Code
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~###
 
-def run_hi_power_loop(schedule_source, start_in_window):
-    """HI POWER: never power off; lights and photos only inside scheduled windows."""
-    def update_display():
-        try:
-            GPIO.cleanup()
-        except Exception:
-            pass
-        run_helper("/home/pi/Desktop/Mothbox/UpdateDisplay.py", "Display error")
-
-    def window_start():
-        hipower.set_idle(False)
+def lights_on():
+    """Attract lights on now (cron's Attract_On.py would within a minute)."""
+    try:
         if mothbox_hw is not None:
-            mothbox_hw.attract_on()        # cron would within a minute; do it now
-        update_display()
+            mothbox_hw.attract_on()
+        else:
+            run_mode_script("/home/pi/Desktop/Mothbox/Attract_On.py")
+    except Exception as e:
+        log_warn(f"Could not switch the attract lights on ({e}) -- cron's Attract_On.py will retry.")
 
-    def window_end():
-        hipower.set_idle(True)             # cron's next TakePhoto / Attract_On exit early
-        # Same end-of-window routine as a normal shutdown: wait for a photo in
-        # progress, lights off, final backup. The boot lock keeps cron's own
-        # Backup_Files.py from running alongside the final one.
-        with open(BOOT_LOCK, "w") as f:
-            f.write("hi power: end-of-window backup\n")
-        try:
-            final_backup_before_shutdown()
-            if mothbox_hw is not None:
-                mothbox_hw.all_lights_off()
-        finally:
-            if os.path.exists(BOOT_LOCK):
-                os.remove(BOOT_LOCK)
-        update_display()
 
-    def switch_change():
+def refresh_display():
+    """Redraw the e-paper mid-session (no logo, no wait for USB drives to mount)."""
+    try:
+        GPIO.cleanup()
+    except Exception:
+        pass
+    run_helper("/home/pi/Desktop/Mothbox/UpdateDisplay.py", "Display error", args=["--refresh"])
+
+
+def check_health(active_since):
+    """
+    Every 10 minutes of a session: are photos actually arriving?
+
+    Report-only by design. It kills a capture that has hung (TakePhoto's own
+    watchdog gives up at 150 s, so one still running after 5 minutes is stuck
+    in a C call) and puts an alert on the display -- it never reboots, so a
+    wrong verdict can't start a reboot loop.
+    """
+    try:
+        ps = subprocess.run(["ps", "-eo", "pid=,etimes=,args="],
+                            capture_output=True, text=True, timeout=10).stdout
+        stuck = session.stuck_photo_pids(ps)
+        for pid in stuck:
+            log_warn(f"TakePhoto.py (pid {pid}) has run for over {session.STUCK_PHOTO_S}s -- killing it.")
+            try:
+                os.kill(pid, 9)
+            except OSError:
+                pass
+        if stuck:
+            run_mode_script("/home/pi/Desktop/Mothbox/Flash_Off.py")   # it may have died with the flash on
+    except Exception as e:
+        log_warn(f"Could not check for a stuck TakePhoto.py: {e}")
+
+    try:
+        with open(os.path.join(CONTROL_ROOT, "last_photo_time.txt")) as f:
+            last_photo = float(f.read().strip())
+    except (OSError, ValueError):
+        last_photo = None
+    stalled = session.photos_stalled(time.time(), active_since, photo_interval, last_photo)
+    camera_seen = read_control("camera", "ok") != "missing"
+    try:
+        min_gb = int(read_control("safetygb", 9)) - 1          # TakePhoto stops below this
+        storage_low = shutil.disk_usage("/home/pi/Desktop/Mothbox").free < min_gb * 1024 ** 3
+    except Exception:
+        storage_low = False
+    alert = session.health_alert(stalled, camera_seen, storage_low)
+    session.write_health(alert)
+    if alert:
+        log_warn(f"Health check: {alert}")
+    elif stalled:
+        log_warn("Health check: no recent photos -- the camera is already reported missing.")
+    else:
+        log_info("Health check: photos are arriving.")
+
+
+def run_session(keep_awake):
+    """
+    Hand the box to the session loop (session.run) until it powers off: open
+    and close the real windows, stay up through short gaps, power off for
+    long ones. HI POWER (keep_awake) is the same loop, but it never powers off.
+    """
+    started = time.time()
+    active_since = [started]
+
+    def on_activate(plan):
+        active_since[0] = time.time()
+        session.write_health(None)
+        write_session_info("active", plan)
+        lights_on()
+        if time.time() - started > 60:          # booted inside the window: boot just drew this
+            refresh_display()
+
+    def on_deactivate(plan):
+        stop_capture_and_lights()
+        start_background_backup()
+        # The loop's plan, read with its lookahead: a fresh plan_at(now) here
+        # would still see the last seconds of the window and show "STARTS ?".
+        write_session_info("waiting", plan)
+        refresh_display()
+
+    def every_10_min(state):
+        if state == session.ACTIVE:
+            check_health(active_since[0])
+        refresh_display()
+
+    def on_switch_change():
         if mothbox_hw is not None:
             mothbox_hw.all_lights_off()
         log_info("HI POWER switched off -- rebooting so the normal startup takes over.")
@@ -1781,15 +1635,21 @@ def run_hi_power_loop(schedule_source, start_in_window):
     def read_switches():
         return mothbox_hw.read_switches() if mothbox_hw is not None else {"Active": 1, "HI": 1}
 
-    hipower.run(
-        in_window=lambda: is_now_in_schedule(schedule_source, runtime),
-        read_switches=read_switches,
-        on_window_start=window_start,
-        on_window_end=window_end,
-        on_switch_change=switch_change,
-        start_in_window=start_in_window,
+    reason = session.run(
+        plan_at=lambda t: schedule_core.plan_at(sched, t),
+        now=datetime.datetime.now,
+        set_state=session.write_state,
+        on_activate=on_activate,
+        on_deactivate=on_deactivate,
+        power_off=lambda from_session: power_off(from_session=from_session),
+        keep_awake=keep_awake,
+        every_10_min=every_10_min,
+        read_switches=read_switches if keep_awake else None,
+        on_switch_change=on_switch_change,
+        shutdown_enabled=lambda: read_control("shutdown_enabled", "true").lower() == "true",
         log=log_info,
     )
+    log_info(f"Session loop finished: {reason}")
 
 def log_section(title):
     """Prints a clearly delineated section header for the log."""
@@ -1900,7 +1760,7 @@ usersettingsFpath="/boot/firmware/mothbox_custom/mothbox_settings.csv"
 # fresh card the box used to flash its lights (and, inside its schedule window,
 # start a whole session) while it expanded, and the "please wait" screen only
 # appeared if the resize happened to still be running by then.
-# The boot lock is still held here, so cron's Attract_On / TakePhoto stay off.
+# The session state is still 'booting' here, so cron's Attract_On / TakePhoto stay off.
 try:
     _expanding = filesystem_needs_expansion()
 except Exception as e:
@@ -2095,72 +1955,52 @@ log_info(f"Schedule source: {source_type}")
 # ----------END SWITCH CHECK----------------
 
 
-# Read UTC offset from new control layout
-utc_off = float(read_control("utc", 0))
-
-
-
-# ~~~~~~~~~~~~ Figuring out Scheduling Details ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# ~~~~ Pi 5 specific things to change cron-like commands to the next UTC target
-
+# ~~~~~~~~~~~~ Scheduling ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# schedule_core.py turns the settings into real windows of activity. Every
+# decision from here on -- and the session loop at the end -- asks it.
 
 log_section("CONFIGURATION -- Scheduling")
 
-switch_schedule = {}
 if use_switch_schedule:
     log_info("Schedule source: physical switches")
     switch_schedule = read_switch_schedule(switch_vals)
-    minute  = switch_schedule["minute"]
-    hour    = switch_schedule["hour"]
-    weekday = switch_schedule["weekday"]
-    runtime = switch_schedule["runtime"]
+    raw_schedule = switch_schedule
 else:
     log_info("Schedule source: CSV settings")
-    minute  = settings.get("minute",  "0")
-    hour    = settings.get("hour",    "20")
-    weekday = settings.get("weekday", "1,2,3,4,5,6,7")
-    runtime = int(settings.get("runtime", 58))
+    raw_schedule = {k: settings.get(k) for k in ("weekday", "hour", "minute", "runtime")}
+
+sched = schedule_core.parse(raw_schedule)
+if sched.errors:
+    # A typo here used to crash the Scheduler at boot, leaving the box awake,
+    # dark and unable to shut down until the battery died. Now each bad
+    # setting falls back to its default and the display says which to fix.
+    log_warn(f"SCHEDULE ERROR in {', '.join(sched.errors)} ({raw_schedule}) -- using the default "
+             f"for {'that setting' if len(sched.errors) == 1 else 'those settings'}.")
+atomic_update_kv(os.path.join(CONTROL_ROOT, "schedule_errors.txt"), "errors", ",".join(sched.errors))
+_in_use = schedule_core.as_settings(sched)
+set_timings(_in_use["minute"], _in_use["hour"], _in_use["weekday"], _in_use["runtime"])
+log_info(f"Schedule in use: {_in_use}")
+log_info(f"Windows in the next 24 h: {schedule_core.describe(sched, datetime.datetime.now())}")
 
 photo_interval = int(settings.get("photo_interval", 1))
 atomic_update_kv(os.path.join(CONTROL_ROOT, "photo_interval.txt"), "photo_interval", photo_interval)
-settings.pop("photo_interval", None)  # don't let it pollute cron builder
+log_info(f"Photo interval: {photo_interval} min")
 log_info(f"Backup interval: {settings.get('backup_interval', 5)} min (read live by Backup_Files.py)")
-settings.pop("backup_interval", None)
 log_info(f"Hardware override in settings: {settings.get('hardware', 'auto')}")
-settings.pop("hardware", None)
-
-set_timings(minute, hour, weekday, runtime)
-settings.pop("runtime", None)  # safe delete, no KeyError
-
 
 if rpiModel == 4:
     log_warn("Pi 4 not supported -- device cannot wake itself.")
 
-if rpiModel == 5:
-    # don't need to modify the hours to UTC like we do for pijuice
-    # Build Cron expression
-    # The cron expression is made of five fields. Each field can have the following values.
-    # minute (0-59) |	hour (0 - 23)	|day of the month (1 - 31)	| month (1 - 12)	| day of the week (0 - 6)
-
-    # Loop through each key-value pair in the dictionary
-    for key, value in settings.items():
-        # Check if the value is a string and contains semicolons
-        if isinstance(value, str) and ";" in value:
-            # Replace semicolons with commas
-            settings[key] = value.replace(";", ",")
-    cron_source = switch_schedule if use_switch_schedule else settings
-    cron_expression = build_cron_expression(cron_source)
-    
-    log_info(f"Cron expression : {cron_expression}")
-    log_info(f"UTC offset      : {utc_off}")
-
-    next_epoch_time = calculate_next_event(cron_expression, utc_off)
-
-    # Clear existing wakeup alarm (assuming sudo access)
+# A wake alarm for the next window, set now as a safety net: if this boot
+# ends without a proper shutdown (power cut, crash), the box still wakes for
+# it. power_off() replaces it with the exact one, last thing before halting.
+_next_window = schedule_core.next_window_start(sched, datetime.datetime.now())
+if _next_window is None:
+    log_info("The schedule never leaves a gap (always on) -- no wake alarm needed.")
+else:
     clear_wakeup_alarm()
-
-set_wakeup_alarm(next_epoch_time)
-log_ok(f"Next wakeup alarm set for: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(next_epoch_time))}")
+    set_wakeup_alarm(next_wake_epoch())
+    log_ok(f"Safety wake alarm set for the next window ({_next_window:%a %H:%M}).")
 
 #-- End Scheduling complete, now set all the other settings
 
@@ -2175,7 +2015,7 @@ if sActive == 0:
 
 if mode == "OFF":
     atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
-    run_shutdown_pi5_FAST()
+    power_off(off_mode=True)
     quit()
 
 # If Active Switch is OFF, it should never make it past here
@@ -2269,44 +2109,47 @@ if not camera_ok:
 
 log_section("LAUNCH -- Schedule Check")
 
-if mode == "ACTIVE":
-    schedule_to_check = switch_schedule if use_switch_schedule else settings
-    if is_now_in_schedule(schedule_to_check, runtime):
-        now_is_in_schedule = 1
-        log_ok("Within schedule window -- staying awake.")
-    else:
-        now_is_in_schedule = 0
-        log_info("Outside schedule window -> entering STANDBY.")
-        mode = "STANDBY"
-        atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
-        # Blink FIRST. Someone is usually standing there waiting to know the
-        # box is healthy, and the diagnostics below take several seconds they
-        # would otherwise spend staring at a dark box. The log still gets
-        # everything -- it just gets it after the human has their answer.
-        # Only the "all good" blink here -- a missing camera already blinked its
-        # 8x warning right after the check, on whichever path we took.
-        if camera_ok:
-            run_cmd("python /home/pi/Desktop/Mothbox/scripts/blink_standby.py 2 0.125")
+boot_plan = schedule_core.plan_at(sched, datetime.datetime.now())
 
-        log_section("STANDBY -- Sensors & Diagnostics")
-        run_script("/home/pi/Desktop/Mothbox/Diagnostics.py", "Standby_Check", show_output=True)
-        run_shutdown_pi5_FAST()
+if mode == "ACTIVE" and boot_plan.state == schedule_core.SLEEP:
+    log_info(f"Outside the schedule -- the next window opens {boot_plan.next_start:%a %H:%M}. "
+             f"Entering STANDBY.")
+    mode = "STANDBY"
+    atomic_update_kv(os.path.join(CONTROL_ROOT, "mode.txt"), "mode", mode)
+    # Blink FIRST. Someone is usually standing there waiting to know the
+    # box is healthy, and the diagnostics below take several seconds they
+    # would otherwise spend staring at a dark box. The log still gets
+    # everything -- it just gets it after the human has their answer.
+    # Only the "all good" blink here -- a missing camera already blinked its
+    # 8x warning right after the check, on whichever path we took.
+    if camera_ok:
+        run_cmd("python /home/pi/Desktop/Mothbox/scripts/blink_standby.py 2 0.125")
+
+    log_section("STANDBY -- Sensors & Diagnostics")
+    run_script("/home/pi/Desktop/Mothbox/Diagnostics.py", "Standby_Check", show_output=True)
+    if power_off() == "powered_off":
         quit()
+    # Getting ready to sleep took long enough that the next window is close
+    # now, so power_off() stayed up: carry on and run it.
+    mode = "ACTIVE"
+    boot_plan = schedule_core.plan_at(sched, datetime.datetime.now())
 
-if mode == "HI_POW":
-    # Never STANDBY: stay awake with wifi on. Outside a window, set the idle
-    # flag BEFORE the boot lock is released below, so the first cron tick
-    # cannot switch the lights on.
-    hipow_schedule = switch_schedule if use_switch_schedule else settings
-    hipow_in_window = is_now_in_schedule(hipow_schedule, runtime)
-    hipower.set_idle(not hipow_in_window)
-    if hipow_in_window:
-        log_ok("HI POWER: within schedule window -- lights and photos on.")
+if mode in ("ACTIVE", "HI_POW"):
+    if boot_plan.state == schedule_core.ACTIVE:
+        _until = (f"{boot_plan.session_end:%a %H:%M}" if boot_plan.session_end
+                  else "further notice (the schedule never leaves a gap)")
+        log_ok(f"Inside a window -- lights and photos until {_until}.")
+        write_session_info("active", boot_plan)
     else:
-        log_info("HI POWER: outside schedule window -- staying awake and connected, "
-                 "lights and photos wait for the next window.")
+        # Switched on (or woken) just before a window -- or HI POWER between
+        # windows: stay up, dark, and start exactly when the window opens.
+        log_ok(f"The next window opens {boot_plan.next_start:%a %H:%M} -- waiting for it, dark"
+               + (" (HI POWER never sleeps)." if mode == "HI_POW" else "."))
+        write_session_info("waiting", boot_plan)
         if camera_ok:
             run_cmd("python /home/pi/Desktop/Mothbox/scripts/blink_standby.py 2 0.125")
+else:
+    write_session_info(mode.lower())         # DEBUG / PARTY: the display shows the next wake
 
 log_section("CONFIGURATION -- Sensors & Diagnostics")
 run_script("/home/pi/Desktop/Mothbox/Diagnostics.py", "Startup_Check", show_output=True)
@@ -2340,6 +2183,11 @@ log_section("LAUNCH -- Final Mode")
 # NOTE: no "OFF" branch here. OFF is handled much earlier, in CONFIGURATION --
 # Mode, which shuts down and quit()s before this point, so a branch here could
 # never run.
+if mode in ("DEBUG", "PARTY"):
+    # Before DebugMode.py / Party.py: Party.py never returns, and running
+    # TakePhoto.py or Attract_On.py by hand to test should work straight away.
+    session.write_state(session.DEBUG)
+
 if mode == "DEBUG":
     log_ok("Mode is DEBUG -- wifi on, cron off, staying alive.")
     # Define the path to your script (replace 'path/to/script' with the actual path)
@@ -2364,23 +2212,14 @@ else:
 
 
 
-###------ Remove the Boot lock ----------#
-# Allow other scripts to be run by cron can be enabled. Run any time-sensitive sensor scripts before this (e.g. measure light)
+###------ Hand over to the session ----------#
+# From here on the session state decides what cron may do (see session.py).
 
-if os.path.exists(BOOT_LOCK):
-    os.remove(BOOT_LOCK)
-
-###--------------------------------------###
-
-
-log_section("LAUNCH -- Session Timer")
-if mode == "HI_POW":
-    log_info("HI POWER: no shutdown -- watching the schedule and the HI switch.")
-    run_hi_power_loop(hipow_schedule, hipow_in_window)
-elif runtime > 0 and mode not in ("DEBUG", "PARTY"):
-    enable_shutdown()
-    time.sleep(0.05)
-    log_info(f"Session will run for {runtime} minute(s) then shut down.")
-    schedule_shutdown(runtime)
+log_section("LAUNCH -- Session")
+if mode in ("DEBUG", "PARTY"):
+    log_info("No session in DEBUG / PARTY -- cron is off and the box runs until switched off.")
 else:
-    log_info("No shutdown scheduled -- running indefinitely.")
+    enable_shutdown()
+    if mode == "HI_POW":
+        log_info("HI POWER: never powers off -- following the schedule and watching the HI switch.")
+    run_session(keep_awake=(mode == "HI_POW"))

@@ -22,14 +22,13 @@ TODO:
 """
 import os
 import sys
-#######---- Check for Boot lock ------
-BOOT_LOCK = "/run/boot_script_running"
-
-if os.path.exists(BOOT_LOCK):
-    sys.exit(0)
-
-# HI POWER mode, outside a scheduled window: no photos (see hipower.py)
-if os.path.exists("/run/mothbox_hipow_idle"):
+#######---- Only inside a session window ------
+# The Scheduler says what the box is doing in /run/mothbox_session (see
+# session.py): photos only while it is "active" (or "debug", so running this
+# by hand to test still works). Cron runs this by path, so this folder is
+# already first on sys.path.
+import session
+if not session.allows(session.LIGHTS_AND_PHOTOS):
     sys.exit(0)
 
 #######---- One TakePhoto at a time ------
@@ -98,14 +97,26 @@ def is_photo_due():
         elapsed_mins = (time.time() - last) / 60.0
         threshold = interval_mins - 0.55  # Allow up to 33s early
         print(f"Photo interval check: {elapsed_mins:.2f} min elapsed, threshold is {threshold:.1f} min (interval={interval_mins})")
+        if elapsed_mins < -1:
+            # The last photo is stamped in the FUTURE: the clock has been set
+            # back since (wrong RTC corrected by NTP, manualTime, ...). Waiting
+            # for "interval minutes after it" would mean no photos until the
+            # clock catches up -- hours or years. Take one; that re-stamps it.
+            print("Last photo time is in the future (the clock moved back) -- ignoring it")
+            return True
         return elapsed_mins >= threshold
     except (ValueError, IOError):
         return True  # If anything goes wrong reading the file, take the photo
 
-def record_photo_taken():
+def record_photo_taken(started_at):
+    """
+    Stamp the time this photo STARTED, not when it finished saving. Stamping
+    the finish made every capture slower than ~33 s push the next photo a whole
+    cron minute later: photo_interval=2 silently became one photo every 3 min.
+    """
     try:
         with open(LAST_PHOTO_FILE, "w") as f:
-            f.write(str(time.time()))
+            f.write(str(started_at))
             f.flush()
             os.fsync(f.fileno())
     except IOError as e:
@@ -141,17 +152,14 @@ def read_control(path: Path, key: str, default=None):
 
 
 
-#IF the mothbox is supposed to be off, don't take a photo!
-mode = read_control(CONTROL_ROOT / "mode.txt", "mode", "ACTIVE")
-
-if mode in ("OFF", "STANDBY"):
-    print("Mothbox is in", mode, "mode, not taking photos")
-    quit()
+# (Whether the box should be photographing at all -- OFF, STANDBY, between
+# windows -- is the session state check at the top of this file.)
 
 # Check and see if we should be taking a photo right now
 if not is_photo_due():
     print(f"Photo not due yet (interval={get_photo_interval()} min). Skipping.")
     sys.exit(0)
+PHOTO_STARTED = time.time()   # what record_photo_taken() stamps
 
 
 
@@ -1167,6 +1175,6 @@ takePhoto_Manual()
 picam2.stop()
 signal.alarm(0)
 _disarm_flash_watchdog()
-record_photo_taken()  # Only called on successful capture completion
+record_photo_taken(PHOTO_STARTED)  # Only called on successful capture completion
 quit()
 

@@ -313,12 +313,29 @@ def tag(draw, x, y, s, f=None, pad=2, inverted=False):
 # ---------------------------------------------------------------------------
 # Screens
 # ---------------------------------------------------------------------------
+def when_field(info):
+    """
+    The left 'when' box -- what the box is waiting for next:
+      phase "active"  -> SESSION ENDS  session_end   ("always on" if it is -1)
+      phase "waiting" -> STARTS        next_start    (awake, dark, before a window)
+      anything else   -> NEXT WAKE     next_wake     (asleep until the wake alarm)
+    """
+    phase = str(info.get("phase") or "").strip().lower()
+    if phase == "active":
+        end = _num(info.get("session_end"))
+        return "SESSION ENDS", "always on" if end == -1 else (format_when(end) or "?")
+    if phase == "waiting":
+        return "STARTS", format_when(info.get("next_start")) or "?"
+    return "NEXT WAKE", format_when(info.get("next_wake")) or "not set"
+
+
 def render_status(info):
     """
     The normal status screen. `info` keys (any may be missing or junk):
       name, mode, hw, version                         strings
       battery_pct                                     0-100, None = unknown
       next_wake, updated                              epoch seconds
+      phase, session_end, next_start                  see when_field()
       utc_offset                                      e.g. "-5.0"
       sd_free_gb, sd_photos                           numbers
       usb            list of {"free_gb", "photos"}, may be empty
@@ -328,7 +345,7 @@ def render_status(info):
 
     Layout, top to bottom (rows in px):
       0-22    name                           battery
-      24-48   NEXT WAKE        | UPDATED
+      24-48   NEXT WAKE / SESSION ENDS / STARTS  | LAST UPDATE
       50-74   SD FREE          | USB FREE    (SD inverts below LOW_STORAGE_GB)
       76-108  DAYS / HOURS / RUN
       110-121 mode tag, GPS, model+version   -- or the alert bar
@@ -368,7 +385,8 @@ def render_status(info):
 
     # --- when: next wake | last update ----------------------------------
     y = HEADER_H + 2
-    labelled(draw, 2, y, "NEXT WAKE", format_when(get("next_wake")) or "not set", w=LW)
+    when_label, when_value = when_field(info)
+    labelled(draw, 2, y, when_label, when_value, w=LW)
     utc = str(get("utc_offset") or "").strip()
     try:
         utc = f"UTC{float(utc):+g}"

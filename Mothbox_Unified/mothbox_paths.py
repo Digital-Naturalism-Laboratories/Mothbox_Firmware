@@ -33,7 +33,8 @@ STATE (ext4, journaled, written constantly, never read by a human):
     name, mode, switches, hours/minutes/weekdays/runtime, photo_interval,
     nextwake, hardware, camera, timezone, utc, lat/lon/gpstime,
     aflensposition/autogain/exposuretime/lastcalibration,
-    last_photo_time, last_backup_time, shutdown_enabled, pending wifi
+    last_photo_time, last_backup_time, shutdown_enabled, pending wifi,
+    session (what the display's 'when' box shows), schedule_errors
 
 Upgrading in place
 ------------------

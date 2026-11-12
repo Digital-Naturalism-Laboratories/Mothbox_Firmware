@@ -76,6 +76,20 @@ check("GPS", (r.format_gps("8.99312", "-79.51987"), r.format_gps("n/a", "n/a")),
       ("8.993,-79.520", None))
 check("fit adds an ellipsis", r.fit(r.font("text"), "x" * 100, 30).endswith("…"), True)
 
+# --- the 'when' box follows what the box is doing ------------------------------
+import time as _time
+_end = int(_time.mktime((2026, 11, 5, 23, 20, 0, 0, 0, -1)))
+check("inside a window -> SESSION ENDS",
+      r.when_field({"phase": "active", "session_end": str(_end)}), ("SESSION ENDS", "5 Nov 23:20"))
+check("a schedule that never leaves a gap -> always on",
+      r.when_field({"phase": "active", "session_end": "-1"}), ("SESSION ENDS", "always on"))
+check("awake and dark before a window -> STARTS",
+      r.when_field({"phase": "waiting", "next_start": _end}), ("STARTS", "5 Nov 23:20"))
+check("asleep (standby) -> NEXT WAKE",
+      r.when_field({"phase": "standby", "next_wake": _end}), ("NEXT WAKE", "5 Nov 23:20"))
+check("no session info at all (older Scheduler) -> NEXT WAKE",
+      r.when_field({"next_wake": -1}), ("NEXT WAKE", "not set"))
+
 # --- a broken FreeType must not blank the screen --------------------------
 # Pretend _imagingft is missing (Sept 2026 apt upgrade): truetype() raises and,
 # on Pillow >= 10.1, load_default() only avoids FreeType when `core` isn't the

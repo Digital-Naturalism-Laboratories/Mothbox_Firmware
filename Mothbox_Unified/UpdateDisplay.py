@@ -233,7 +233,10 @@ def count_photos(folder):
                 count += 1
     return count
 
-time.sleep(6) # need to wait for USB drives to mount
+# USB drives take a few seconds to mount after boot. The Scheduler's
+# mid-session refreshes (--refresh, every 10 minutes) come long after that.
+if "--refresh" not in sys.argv[1:]:
+    time.sleep(6)
 
 
 # Check for external drives
@@ -344,16 +347,33 @@ print(f"Voltage: {voltage:.2f}V  →  {percent:.0f}%")
 # ------------- Drawing --------------------#
 # Render BEFORE touching the panel: if drawing fails, the panel is never
 # cleared and the previous (stale but useful) screen stays up.
-alerts = []
+alerts = []                         # most important first
 camera_state = read_control(CONTROL_ROOT / "camera.txt", "camera", "ok")
 if str(camera_state).strip().lower() == "missing":
     alerts.append("CAMERA DISCONNECTED")
     print("[UpdateDisplay] camera.txt says missing -- drawing the alert bar")
+try:
+    import session                  # the Scheduler's health check (PHOTOS STOPPED, SD FULL)
+    health = session.read_health()
+except Exception:
+    health = None
+if health:
+    alerts.append(health)
+schedule_errors = read_control(CONTROL_ROOT / "schedule_errors.txt", "errors", "")
+if schedule_errors:
+    alerts.append("SCHEDULE ERROR: " + schedule_errors.replace(",", ", "))
+
+# What the box is doing (Scheduler.py writes session.txt): the 'when' box shows
+# SESSION ENDS while a window is open, STARTS while it waits, else NEXT WAKE.
+phase = read_control(CONTROL_ROOT / "session.txt", "phase", "")
+session_end = read_control(CONTROL_ROOT / "session.txt", "session_end", "0")
+next_start = read_control(CONTROL_ROOT / "session.txt", "next_start", "0")
 
 info = dict(
     name=computerName, mode=mode, hw=hw_name, version=softwareversion,
     battery_pct=None if voltage == -1 or percent < 0 else percent,
     next_wake=nexttime, updated=time.time(), utc_offset=UTCoff,
+    phase=phase, session_end=session_end, next_start=next_start,
     sd_free_gb=free_gb, sd_photos=photo_count_int, usb=usb_drives,
     weekdays=weekdays, hours=hours, minutes=mins, runtime=runtime, interval=photo_interval,
     lat=lat, lon=lon, alerts=alerts,

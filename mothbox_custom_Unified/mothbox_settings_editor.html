@@ -369,7 +369,7 @@
       <div class="field">
         <label class="lbl" for="f-runtime">Session length (minutes)</label>
         <input type="number" id="f-runtime" data-key="runtime" min="1" max="1440" step="1">
-        <p class="hint">How long the Mothbox stays awake taking photos each time. Keep it under 60 if you wake up hourly.</p>
+        <p class="hint">How long the Mothbox stays awake taking photos each time. Sessions that touch or overlap the next one (less than 5 minutes apart) simply run as one long session.</p>
         <div class="fielderr" id="e-runtime"></div>
       </div>
 
@@ -651,7 +651,7 @@ const DEFAULTS = [
   ["timezone", "America/Panama", " this must be an official timezone from the list of linux timezones (supplied in the neighboring file)"],
   ["autoSystemTime", "True", " leave this as True and the mothbox will automatically set its own time"],
   ["manualTime", "1986-04-06 11:11:11", " if the autoSystemTime is False the mothbox will get set to whatever value you put here ONE time and then disable manual time setting (to prevent Groundhog Days) until you set AutosystemTime to False again "],
-  ["runtime", "59", " put how long you want a photo session to go (in minutes). (make it not a full hour if you are doing things hourly) "],
+  ["runtime", "60", " how long each photo session lasts (in minutes). Sessions that touch or overlap the next one just keep going "],
   ["weekday", "1;2;3;4;5;6;7", " add or remove days 1-7 for monday through sunday "],
   ["hour", "19;21;23;2;4", "specify what hour you want things to turn on in 24 timeframe separate multi values with a semicolon"],
   ["minute", "0", " specify a specific minute that the schedule will start"],
@@ -1321,13 +1321,13 @@ function drawSchedule(wd, hrs, mins, runtime, interval) {
     starts.sort((a, b) => a - b);
     for (let i = 0; i < starts.length; i++) {
       const next = (i + 1 < starts.length) ? starts[i + 1] : starts[0] + 1440;
-      if (starts[i] + dur > next) {
-        warns.push("Sessions overlap: the one starting at " + fmtMin(starts[i]) + " runs for " + dur +
-          " minutes, past the next start at " + fmtMin(next % 1440) + ". Shorten the session or drop an hour.");
+      if (starts[i] + dur > next - MERGE_GAP_MIN) {
+        warns.push("The session starting at " + fmtMin(starts[i]) + " runs into the next one at " +
+          fmtMin(next % 1440) + ", so the Mothbox keeps going and runs them as one long session.");
         break;
       }
     }
-    if (dur >= 1440) warns.push("A session this long never ends before the next one starts.");
+    if (dur >= 1440) warns.push("A session this long never ends before the next one starts: the Mothbox will stay on all the time.");
   }
   if (validHrs.length && validMins.length > 1) {
     const list = [];
@@ -1343,13 +1343,15 @@ function drawSchedule(wd, hrs, mins, runtime, interval) {
   }
   $("schedwarn").innerHTML = warns.map((w) => '<div class="msg warn">' + escapeHtml(w) + "</div>").join("");
 }
-/* Overlapping or back-to-back runs collapse into single awake stretches. */
+/* Runs less than MERGE_GAP_MIN apart collapse into single awake stretches --
+   the same rule as the firmware (schedule_core.py). */
+const MERGE_GAP_MIN = 5;
 function mergeRuns(list) {
   const sorted = list.slice().sort((a, b) => a.start - b.start);
   const out = [];
   sorted.forEach((r) => {
     const last = out[out.length - 1];
-    if (last && r.start <= last.end) last.end = Math.max(last.end, r.end);
+    if (last && r.start - last.end < MERGE_GAP_MIN) last.end = Math.max(last.end, r.end);
     else out.push({ start: r.start, end: r.end });
   });
   return out;

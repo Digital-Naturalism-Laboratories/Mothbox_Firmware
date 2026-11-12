@@ -8,17 +8,18 @@ detected hardware (Mothbox Pro PCB or DIY relay build).
 import os
 import sys
 
-#######---- Check for Boot lock ------
-BOOT_LOCK = "/run/boot_script_running"
-if os.path.exists(BOOT_LOCK):
-    sys.exit(0)
-# HI POWER mode, outside a scheduled window: stay dark (see hipower.py)
-if os.path.exists("/run/mothbox_hipow_idle"):
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path[:0] = [_HERE, os.path.dirname(_HERE)]
+
+#######---- Only inside a session window ------
+# The Scheduler says what the box is doing in /run/mothbox_session (see
+# session.py): lights only while it is "active" (or "debug", so this still
+# works when run by hand).
+import session
+if not session.allows(session.LIGHTS_AND_PHOTOS):
     sys.exit(0)
 #-----------------------------##
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path[:0] = [_HERE, os.path.dirname(_HERE)]
 import mothbox_hw
 
 print("----------------- Attract On! -------------------")

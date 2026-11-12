@@ -38,10 +38,11 @@ def _t(y, mo, d, h, mi):
 
 
 BASE = dict(
-    name="nastyMara", mode="ACTIVE", hw="pro", version="6.0.4",
-    battery_pct=36, next_wake=_t(2026, 10, 21, 9, 0), updated=_t(2026, 10, 20, 11, 0),
+    name="nastyMara", mode="ACTIVE", hw="pro", version="6.1.0",
+    battery_pct=36, next_wake=_t(2026, 10, 21, 8, 58), updated=_t(2026, 10, 20, 11, 0),
+    phase="active", session_end=_t(2026, 10, 20, 12, 0), next_start=0,
     utc_offset="-5.0", sd_free_gb=105, sd_total_gb=114, sd_photos=238, usb=[],
-    weekdays="1;2;3;4;5;6;7", hours="9;11", minutes="0", runtime="59", interval="1",
+    weekdays="1;2;3;4;5;6;7", hours="9;11", minutes="0", runtime="60", interval="1",
     lat="n/a", lon="n/a", alerts=[],
 )
 
@@ -49,7 +50,8 @@ BASE = dict(
 STATUS_SCENARIOS = [
     ("01_active", {}),
     ("02_standby_camera_missing", dict(
-        name="lookXarda", mode="STANDBY", battery_pct=92, next_wake=_t(2026, 10, 23, 19, 0),
+        name="lookXarda", mode="STANDBY", phase="standby", battery_pct=92,
+        next_wake=_t(2026, 10, 23, 18, 58),
         updated=_t(2026, 10, 23, 7, 12), sd_photos=0, interval="2", hours="19;21;23;2;4",
         alerts=["CAMERA DISCONNECTED"])),
     ("03_low_storage_low_battery", dict(
@@ -60,17 +62,22 @@ STATUS_SCENARIOS = [
         name="WWWWWWWWWWWW", mode="HI_POW", battery_pct=100, sd_free_gb=1840, sd_photos=123456,
         usb=[dict(free_gb=1.2, total_gb=64, photos=99999), dict(free_gb=10, total_gb=32, photos=1)],
         weekdays="1;3;5;7", hours="18;19;20;21;22;23;0;1;2;3;4;5;6", minutes="15;45",
-        runtime="120", interval="10", lat="-33.86882", lon="151.20929",
-        alerts=["CAMERA DISCONNECTED", "LOW BATTERY"])),
-    ("05_spanish_name", dict(name="ñandúAmarillo", battery_pct=67, weekdays="1;2;3;4;5")),
+        runtime="120", interval="10", lat="-33.86882", lon="151.20929", session_end=-1,
+        alerts=["CAMERA DISCONNECTED", "PHOTOS STOPPED", "SCHEDULE ERROR: hour, runtime"])),
+    ("05_waiting_spanish_name", dict(
+        name="ñandúAmarillo", battery_pct=67, weekdays="1;2;3;4;5", phase="waiting",
+        next_start=_t(2026, 10, 20, 19, 0), updated=_t(2026, 10, 20, 18, 56))),
     ("06_unknown_values", dict(
-        name="errorname", mode="ERRORMODE", battery_pct=None, next_wake=-1, utc_offset="erroUTC",
+        name="errorname", mode="ERRORMODE", phase="", battery_pct=None, next_wake=-1, utc_offset="erroUTC",
         sd_free_gb=None, sd_photos=None, weekdays="errorweekdays", hours="errorhours",
         minutes="errorminutes", runtime="erroruntime", interval="errInt", version="5")),
+    ("07_schedule_error", dict(hours="19;21;23;2;4", alerts=["SCHEDULE ERROR: hour"])),
+    ("08_photos_stopped", dict(name="liftPanga", hours="0", runtime="1400", interval="2",
+                               session_end=_t(2026, 10, 20, 23, 20), alerts=["PHOTOS STOPPED"])),
 ]
 OTHER_SCREENS = [
-    ("07_boot_logo", lambda r: r.render_logo("pro", "6.0.4")),
-    ("08_first_boot_wait", lambda r: r.render_wait()),
+    ("09_boot_logo", lambda r: r.render_logo("pro", "6.1.0")),
+    ("10_first_boot_wait", lambda r: r.render_wait()),
 ]
 
 

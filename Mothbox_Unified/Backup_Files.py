@@ -25,20 +25,43 @@ Note:
 
 import os
 import sys
-#######---- Check for Boot lock ------
-BOOT_LOCK = "/run/boot_script_running"
-
-# --final : the end-of-session backup that Scheduler.py runs deliberately from
-# run_shutdown_pi5(), AFTER it has re-armed the boot lock (so no cron-launched
-# TakePhoto.py / Backup_Files.py can interfere) and after photo capture has
-# stopped. It bypasses both the boot lock and the interval throttle below so
-# the last few minutes of photos get copied before power-off. Never pass this
-# from cron -- it is only meaningful when the Scheduler is orchestrating the
-# shutdown sequence.
+import time
+#######---- Only while the box is awake for a session ------
+# --final : the end-of-window backup that Scheduler.py runs itself, after
+# photo capture has stopped -- before powering off, or at the start of a gap
+# it stays awake through. It bypasses the session-state check and the
+# interval throttle below so the last few minutes of photos get copied. Never
+# pass this from cron.
 FINAL_BACKUP = "--final" in sys.argv[1:]
 
-if os.path.exists(BOOT_LOCK) and not FINAL_BACKUP:
+# Cron backups run while a window is open or the box is waiting, dark, for
+# the next one -- not while it boots or shuts down (see session.py).
+import session
+if not FINAL_BACKUP and not session.allows(session.BACKUPS):
     sys.exit(0)
+
+#######---- One backup at a time ------
+# A cron backup that started a moment before the window closed would
+# otherwise run alongside the final one, both copying and moving the same
+# photos. Cron runs give up if one is already going; the final one waits
+# (up to FINAL_LOCK_WAIT_S) for it to finish, then copies whatever is left.
+import fcntl
+FINAL_LOCK_WAIT_S = 300
+try:
+    _backup_lock = open("/run/mothbox_backup.lock", "w")
+except OSError as e:                    # e.g. run by hand as pi, the lock file is root's
+    print(f"[Backup] could not open the single-instance lock ({e}); continuing anyway")
+    _backup_lock = None
+_deadline = time.time() + (FINAL_LOCK_WAIT_S if FINAL_BACKUP else 0)
+while _backup_lock is not None:
+    try:
+        fcntl.flock(_backup_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        break
+    except OSError:
+        if time.time() >= _deadline:
+            print("[Backup] another backup is still running -- skipping this one")
+            sys.exit(3 if FINAL_BACKUP else 0)
+        time.sleep(2)
 
 #-----------------------------##
 

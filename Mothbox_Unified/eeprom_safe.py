@@ -42,7 +42,7 @@ Usage in the scheduler (Pi 5 branch), replacing the old EEPROM block:
         # "failed" -> flash won't take; error already blinked, continue degraded
         # "defer"  -> resize not settled; continue, try again next boot
 
-At the top of BOTH run_shutdown_pi5() and run_shutdown_pi5_FAST():
+In Scheduler.py's power_off(), before anything powers the box off:
 
     from eeprom_safe import should_reboot_before_poweroff, reboot_to_apply
     if should_reboot_before_poweroff():

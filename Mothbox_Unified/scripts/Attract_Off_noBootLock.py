@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Attract_Off_noBootLock.py -- attract lights off, ignoring the boot lock (manual use).
+"""Attract_Off_noBootLock.py -- attract lights off, ignoring the session state (manual use).
 
 Entry point kept for cron / Scheduler.py / TakePhoto.py, which call this
 script by path. All pin logic lives in mothbox_hw.py and dispatches on the

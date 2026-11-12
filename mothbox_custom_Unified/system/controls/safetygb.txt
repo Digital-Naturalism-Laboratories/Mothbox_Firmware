@@ -1,1 +1,1 @@
-safetyGB=10
+safetygb=10
