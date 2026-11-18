@@ -508,7 +508,7 @@ def find_file(path, filename, depth=1):
 
 SETTING_DEFAULTS = {
     "runtime":      0,
-    "photo_interval": 1, 
+    "photo_interval": 2,
     "backup_interval": 5,
     "hardware": "auto",
     "utc_off":      0,
@@ -2045,7 +2045,7 @@ set_timings(_in_use["minute"], _in_use["hour"], _in_use["weekday"], _in_use["run
 log_info(f"Schedule in use: {_in_use}")
 log_info(f"Windows in the next 24 h: {schedule_core.describe(sched, datetime.datetime.now())}")
 
-photo_interval = int(settings.get("photo_interval", 1))
+photo_interval = int(settings.get("photo_interval", 2))
 atomic_update_kv(os.path.join(CONTROL_ROOT, "photo_interval.txt"), "photo_interval", photo_interval)
 log_info(f"Photo interval: {photo_interval} min")
 log_info(f"Backup interval: {settings.get('backup_interval', 5)} min (read live by Backup_Files.py)")
