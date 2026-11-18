@@ -38,7 +38,7 @@ def _t(y, mo, d, h, mi):
 
 
 BASE = dict(
-    name="nastyMara", mode="ACTIVE", hw="pro", version="6.1.0",
+    name="nastyMara", mode="ACTIVE", hw="pro", version="6.1.1",
     battery_pct=36, next_wake=_t(2026, 10, 21, 8, 58), updated=_t(2026, 10, 20, 11, 0),
     phase="active", session_end=_t(2026, 10, 20, 12, 0), next_start=0,
     utc_offset="-5.0", sd_free_gb=105, sd_total_gb=114, sd_photos=238, usb=[],
@@ -74,9 +74,12 @@ STATUS_SCENARIOS = [
     ("07_schedule_error", dict(hours="19;21;23;2;4", alerts=["SCHEDULE ERROR: hour"])),
     ("08_photos_stopped", dict(name="liftPanga", hours="0", runtime="1400", interval="2",
                                session_end=_t(2026, 10, 20, 23, 20), alerts=["PHOTOS STOPPED"])),
+    ("08b_clock_lost", dict(alerts=["CLOCK LOST - SET TIME", "NO CLOCK BATTERY"])),
+    ("08c_clock_battery_low", dict(alerts=["CLOCK BATTERY LOW"])),
+    ("08d_regular_cell", dict(alerts=["REGULAR CELL? NOT CHARGING"])),
 ]
 OTHER_SCREENS = [
-    ("09_boot_logo", lambda r: r.render_logo("pro", "6.1.0")),
+    ("09_boot_logo", lambda r: r.render_logo("pro", "6.1.1")),
     ("10_first_boot_wait", lambda r: r.render_wait()),
 ]
 

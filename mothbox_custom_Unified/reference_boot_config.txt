@@ -28,8 +28,11 @@
 #                                                      readout 2.60 fps vs 2.02 at 360 MHz, so ~30%
 #                                                      less rolling-shutter smear on moving insects.
 #                                                      Drop to 360000000 if photos show tearing.
-#   dtparam=rtc_bbat_vchg=3000000                      trickle-charges the RTC coin cell so wake
-#                                                      alarms survive a power loss
+#   (no rtc_bbat_vchg line -- ON PURPOSE)              coin cell charging starts every boot OFF, which
+#                                                      is safe for a regular (CR2032) cell. Scheduler.py
+#                                                      turns it on at boot only when mothbox_settings.csv
+#                                                      says rtc_battery=rechargeable (see clock_battery.py).
+#                                                      Do not add it back: it would charge regular cells.
 #   dtoverlay=w1-gpio,gpiopin=4                        DS18B20 board temperature (Diagnostics.py)
 #   PSU_MAX_CURRENT=5000  +  usb_max_current_enable=1  full USB current for the backup drive
 #   dtoverlay=disable-bt                               Bluetooth off (power)
@@ -87,7 +90,6 @@ otg_mode=1
 
 [all]
 dtoverlay=ov64a40,cam0,link-frequency=456000000
-dtparam=rtc_bbat_vchg=3000000
 dtoverlay=disable-bt
 
 PSU_MAX_CURRENT=5000

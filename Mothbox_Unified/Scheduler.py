@@ -71,6 +71,7 @@ from eeprom_safe import (
 # First-boot filesystem-expansion guard -- must live alongside this script too
 from firstboot_guard import wait_for_firstboot_settle, filesystem_needs_expansion
 import schedule_core
+import clock_battery
 
 # Hardware abstraction (Mothbox Pro PCB vs DIY relay build) -- alongside too
 try:
@@ -523,6 +524,7 @@ SETTING_DEFAULTS = {
     "bat_Wh":       10.0,
     "bat_80perVolts": 2.0,
     "bat_20perVolts": 1.0,
+    "rtc_battery":  None,   # None = row missing: leave charging as config.txt set it
 }
 
 
@@ -637,6 +639,10 @@ def load_settings(filename):
                     if not 1 <= bi <= 999:
                         print(f"WARNING: backup_interval={bi} outside 1-999, Backup_Files will use 5")
                     result["backup_interval"] = bi
+                elif setting == "rtc_battery":
+                    # rechargeable | regular -- the RTC coin cell. Checked and
+                    # applied by clock_battery.py at every boot.
+                    result["rtc_battery"] = value
                 elif setting == "hardware":
                     # auto | pro | diy -- read directly by mothbox_hw.py; parsed
                     # here only so it is recognised and shown in the boot log.
@@ -1550,6 +1556,29 @@ def refresh_display():
     run_helper("/home/pi/Desktop/Mothbox/UpdateDisplay.py", "Display error", args=["--refresh"])
 
 
+def ntp_synced():
+    """True once the system clock has been set from the network."""
+    try:
+        out = subprocess.run(["timedatectl", "show", "-p", "NTPSynchronized", "--value"],
+                             capture_output=True, text=True, timeout=10).stdout
+        return out.strip() == "yes"
+    except Exception:
+        return False
+
+
+def clear_clock_lost_if_synced():
+    """CLOCK LOST stays on the display until the time is set again."""
+    try:
+        if clock_battery.was_clock_lost(CONTROL_ROOT) and ntp_synced():
+            os.system("hwclock -w")                 # the RTC gets the good time too
+            clock_battery.clear_clock_lost(CONTROL_ROOT, time.time())
+            log_ok("The clock was set from the network -- CLOCK LOST cleared.")
+            return True
+    except Exception as e:
+        log_warn(f"Could not check whether the clock has been set ({e})")
+    return False
+
+
 def check_health(active_since):
     """
     Every 10 minutes of a session: are photos actually arriving?
@@ -1624,6 +1653,7 @@ def run_session(keep_awake):
     def every_10_min(state):
         if state == session.ACTIVE:
             check_health(active_since[0])
+        clear_clock_lost_if_synced()
         refresh_display()
 
     def on_switch_change():
@@ -1821,6 +1851,36 @@ runtime         = settings["runtime"]
 log_info(f"Loaded settings: {settings}")
 
 
+# --- The RTC coin cell: it keeps the clock (and so every wake-up) alive
+# whenever the main battery is unplugged. Measure it with charging off, then
+# charge it only if the settings say it is rechargeable. Runs in every mode
+# (it lights nothing) and BEFORE the time is set below: `hwclock -w` rewrites
+# the RTC and would hide a clock that lost power.
+log_section("STARTUP -- Clock battery")
+try:
+    _rtc_epoch = clock_battery.read_rtc_epoch()
+    _clock_lost = clock_battery.clock_lost(_rtc_epoch) or clock_battery.was_clock_lost(CONTROL_ROOT)
+    _cell = clock_battery.check(settings.get("rtc_battery"))
+    _cv = _cell["cell_v"]
+    log_info(f"Coin cell: setting={_cell['kind'] or 'not in settings (left as config.txt set it)'}  "
+             f"cell={'unreadable' if _cv is None else f'{_cv:.3f} V'}  "
+             f"charging={_cell['charging_uv']} uV")
+    if clock_battery.clock_lost(_rtc_epoch):
+        log_warn(f"The RTC lost power (it reads {_rtc_epoch}) -- the clock is wrong until the "
+                 f"time is set again. The coin cell is dead, missing or disconnected.")
+    elif _clock_lost:
+        log_warn("The clock lost power on an earlier boot and hasn't been set since.")
+    for _a in _cell["alerts"]:
+        log_warn(f"Clock battery: {_a}")
+    if not _cell["alerts"] and not _clock_lost:
+        log_ok("Clock battery OK.")
+    clock_battery.write_status(CONTROL_ROOT, _cell, _clock_lost, time.time())
+    clock_battery.append_history(os.path.join(CONTROL_ROOT, clock_battery.HISTORY_FILE),
+                                 time.time(), _cell, _clock_lost)
+except Exception as e:
+    log_warn(f"Clock battery check failed ({e}) -- charging left as config.txt set it.")
+
+
 if manTimezone.startswith("right/"):
     log_warn("Timezone uses 'right/' prefix which includes leap seconds and will cause scheduling errors. Use a standard timezone name instead.")
 
@@ -1849,10 +1909,13 @@ if(autoTime=="false"):
     manTime
     ], check=True)
     update_csv_setting(usersettingsFpath, "autoSystemTime", "True")
+    if clock_battery.clear_clock_lost(CONTROL_ROOT, time.time()):
+        log_ok("Clock set by hand -- CLOCK LOST cleared.")
 else:
     log_info("Time mode: AUTO (NTP)")
     subprocess.run(["timedatectl", "set-ntp", "true"], check=True)
     os.system("sudo hwclock -w")
+    clear_clock_lost_if_synced()
 
 #Reset python's cached version of the time
 time.tzset()

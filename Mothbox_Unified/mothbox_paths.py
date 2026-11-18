@@ -34,7 +34,8 @@ STATE (ext4, journaled, written constantly, never read by a human):
     nextwake, hardware, camera, timezone, utc, lat/lon/gpstime,
     aflensposition/autogain/exposuretime/lastcalibration,
     last_photo_time, last_backup_time, shutdown_enabled, pending wifi,
-    session (what the display's 'when' box shows), schedule_errors
+    session (what the display's 'when' box shows), schedule_errors,
+    clock_battery (coin cell check + per-boot history)
 
 Upgrading in place
 ------------------

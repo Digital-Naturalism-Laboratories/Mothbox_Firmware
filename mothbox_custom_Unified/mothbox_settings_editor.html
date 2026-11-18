@@ -277,6 +277,17 @@
         <div class="fielderr" id="e-hardware"></div>
       </div>
 
+      <div class="field" id="wrap-rtc_battery">
+        <label class="lbl" for="f-rtc_battery">Clock battery (coin cell)</label>
+        <select id="f-rtc_battery" data-key="rtc_battery">
+          <option value="" disabled>Choose the coin cell fitted to this box</option>
+          <option value="rechargeable">Rechargeable (ML2020 / ML2032, the official Pi battery) &mdash; charged</option>
+          <option value="regular">Regular, non-rechargeable (CR2032) &mdash; never charged</option>
+        </select>
+        <p class="hint">The coin cell keeps the clock, and so every scheduled wake-up, running while the main battery is unplugged. A rechargeable cell must be charged or it slowly runs down; a regular cell must <b>never</b> be charged (it can swell or leak). Pick the one actually in the box. The display warns if the cell is low, missing, or the clock lost power.</p>
+        <div class="fielderr" id="e-rtc_battery"></div>
+      </div>
+
       <div class="field">
         <label class="lbl" for="f-autoname">Auto-generate name</label>
         <div class="seg" id="f-autoname" data-key="autoname"></div>
@@ -664,7 +675,8 @@ const DEFAULTS = [
   ["wifipass", "examplepass", " write the wifi password (not currently implemented)"],
   ["photo_interval", "1", " time in minutes between each photo. Default is 1 minute"],
   ["backup_interval", "5", " time in minutes between backups of new photos to the USB drive. Default is 5 (valid 1-999). A final backup always runs at the end of every session regardless"],
-  ["hardware", "auto", " auto detects a Mothbox Pro PCB or a DIY relay build at boot. Set to pro or diy to force it if detection ever guesses wrong"]
+  ["hardware", "auto", " auto detects a Mothbox Pro PCB or a DIY relay build at boot. Set to pro or diy to force it if detection ever guesses wrong"],
+  ["rtc_battery", "rechargeable", " the clock coin cell: regular (CR2032 - never charged) or rechargeable (ML2020/ML2032 - charged). Must match the cell in the box: charging a regular cell can make it leak and an uncharged rechargeable one runs down"]
 ];
 
 /* Settings that get a purpose-built control above. Anything else in a
@@ -672,7 +684,7 @@ const DEFAULTS = [
 const HANDLED = new Set(["autoname", "name", "timezone", "autoSystemTime", "manualTime",
   "runtime", "weekday", "hour", "minute", "bat_voltage", "bat_Wh",
   "bat_80perVolts", "bat_20perVolts", "wifissid", "wifipass", "photo_interval",
-  "backup_interval", "hardware", "second"]);   /* 'second' is not used by the Mothbox -- kept in the file, not shown */
+  "backup_interval", "hardware", "rtc_battery", "second"]);   /* 'second' is not used by the Mothbox -- kept in the file, not shown */
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -908,7 +920,7 @@ function buildStaticControls() {
 
   /* plain text / number fields */
   ["name", "timezone", "manualTime", "runtime", "photo_interval", "backup_interval", "hardware",
-   "bat_voltage", "bat_Wh", "bat_80perVolts", "bat_20perVolts",
+   "rtc_battery", "bat_voltage", "bat_Wh", "bat_80perVolts", "bat_20perVolts",
    "wifissid", "wifipass"].forEach((key) => {
     const el = $("f-" + key);
     if (!el) return;
@@ -1024,6 +1036,7 @@ function doRefresh(skipEl) {
   setInput("f-photo_interval", getVal("photo_interval"), skipEl);
   setInput("f-backup_interval", getVal("backup_interval"), skipEl);
   setInput("f-hardware", (getVal("hardware") || "auto").toLowerCase(), skipEl);
+  setInput("f-rtc_battery", (getVal("rtc_battery") || "").trim().toLowerCase(), skipEl);
   ["bat_voltage", "bat_Wh", "bat_80perVolts", "bat_20perVolts", "wifissid", "wifipass"]
     .forEach((k) => setInput("f-" + k, getVal(k), skipEl));
 
@@ -1144,6 +1157,13 @@ function doRefresh(skipEl) {
     const h = (getVal("hardware") || "auto").trim().toLowerCase();
     if (!hasRow("hardware") && !touched.has("hardware")) return "";
     return ["auto", "pro", "diy"].includes(h) ? "" : "Must be auto, pro or diy.";
+  })(), errors);
+
+  fieldErr("e-rtc_battery", (() => {
+    const c = (getVal("rtc_battery") || "").trim().toLowerCase();
+    if (!hasRow("rtc_battery") && !touched.has("rtc_battery"))
+      return "Not in this file: the box keeps charging the coin cell the way its config.txt says. Choose the cell that is fitted.";
+    return ["regular", "rechargeable"].includes(c) ? "" : "Must be regular or rechargeable -- anything else is treated as regular (not charged).";
   })(), errors);
 
   /* --- battery --- */

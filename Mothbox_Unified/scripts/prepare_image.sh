@@ -28,7 +28,7 @@ echo "This prepares THIS box's card to become the image for every other box. It 
 echo "  - delete all photos:    $(count $MB/photos) in photos/, $(count $MB/photos_backedup) in photos_backedup/"
 echo "  - delete all logs:      $(count $MB/logs) files in logs/"
 echo "  - wipe per-box state:   $STATE/*.txt (name, GPS, calibration, schedule state)"
-echo "  - remove the ssh host keys (each flashed box makes its own on first boot)"
+echo "  - keep the ssh host keys, so every box from this image has the same one"
 echo "  - tidy the boot partition and the apt / journal caches"
 read -r -p "Type yes to continue: " answer
 [ "$answer" = "yes" ] || { echo "Stopped -- nothing was changed."; exit 1; }
@@ -53,13 +53,19 @@ rm -f /home/pi/thermtest.log /home/pi/fat_*.txt /home/pi/settings_backup.csv
 ok "python caches, display mock output and test files removed"
 
 hdr "Per-box identity (5c)"
-if systemctl cat regenerate_ssh_host_keys.service >/dev/null 2>&1; then
-  rm -f /etc/ssh/ssh_host_*
-  systemctl enable regenerate_ssh_host_keys.service >/dev/null 2>&1
-  ok "ssh host keys removed; each flashed box makes its own on first boot"
+# The ssh host keys are KEPT on purpose: every box from this image shares one,
+# so a laptop that has connected to one mothbox.local connects to any other
+# without the "REMOTE HOST IDENTIFICATION HAS CHANGED" wall. Per-box keys only
+# guard against an impostor box on the same network, which isn't a worry here.
+# Make sure nothing regenerates them on a flashed box's first boot.
+if systemctl is-enabled regenerate_ssh_host_keys.service >/dev/null 2>&1; then
+  systemctl disable regenerate_ssh_host_keys.service >/dev/null 2>&1
+  ok "regenerate_ssh_host_keys.service disabled (it would give each box new keys)"
+fi
+if ls /etc/ssh/ssh_host_*_key >/dev/null 2>&1; then
+  ok "ssh host keys kept -- every box from this image shares them"
 else
-  warn "regenerate_ssh_host_keys.service not found -- KEEPING the ssh host keys"
-  warn "(without that service a flashed box would have no keys and nobody could ssh in)"
+  warn "no ssh host keys found -- run: sudo ssh-keygen -A   (or nobody can ssh in)"
 fi
 rm -f /home/pi/.bash_history /root/.bash_history
 ok "shell history cleared"
@@ -109,6 +115,17 @@ apt-get clean && ok "apt cache cleared"
 
 hdr "Default schedule (8)"
 grep -E "^(weekday|hour|minute|runtime|photo_interval)," "$FAT/mothbox_settings.csv" | cut -d, -f1,2 | sed 's/^/  /'
+
+hdr "Clock coin cell"
+CELL=$(grep -E "^rtc_battery," "$FAT/mothbox_settings.csv" | cut -d, -f2 | tr -d ' \r')
+echo "  rtc_battery = ${CELL:-<missing>}  (every box flashed from this image starts with this)"
+if grep -qE "^[[:space:]]*dtparam=rtc_bbat_vchg" /boot/firmware/config.txt; then
+  warn "config.txt still charges the coin cell at every boot (dtparam=rtc_bbat_vchg)."
+  warn "Remove it -- the firmware turns charging on only for rtc_battery=rechargeable:"
+  warn "  sudo sed -i 's/^dtparam=rtc_bbat_vchg=/#dtparam=rtc_bbat_vchg=/' /boot/firmware/config.txt"
+else
+  ok "config.txt does not charge the coin cell by itself"
+fi
 
 hdr "config.txt and the rest (9)"
 bash "$MB/scripts/setup_new_image.sh"

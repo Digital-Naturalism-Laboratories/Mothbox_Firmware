@@ -35,8 +35,9 @@
 	sudo rm -rf /home/pi/Desktop/Mothbox/__pycache__ /home/pi/Desktop/Mothbox/tests/__pycache__
 	rm -f /home/pi/thermtest.log /home/pi/fat_*.txt
 5c) Per-box identity OUTSIDE the Mothbox folder:
-	sudo rm -f /etc/ssh/ssh_host_*                 # else every box shares ssh host keys
-	sudo systemctl enable regenerate_ssh_host_keys.service
+	KEEP the ssh host keys (do not delete /etc/ssh/ssh_host_*): every box from the
+	image shares them, so users never hit "REMOTE HOST IDENTIFICATION HAS CHANGED"
+	when they move between boxes. regenerate_ssh_host_keys.service must be disabled.
 	rm -f /home/pi/.bash_history
 	KEEP the saved wifi connections -- these are shared field networks and are
 	meant to ship with the image so a box can be reached in the field without
@@ -51,6 +52,9 @@
 7) copy scripts to USB to send to github
 8) Check default schedule
 9) Check /boot/firmware/config.txt against mothbox_custom_Pro/reference_boot_config.txt
-	(camera overlay, rtc_bbat_vchg, w1-gpio, i2c, spi + no_miso, USB current must all be present)
+	(camera overlay, w1-gpio, i2c, spi + no_miso, USB current must all be present)
+	dtparam=rtc_bbat_vchg must NOT be there: coin cell charging is set at every boot from
+	rtc_battery in mothbox_settings.csv (regular = never charged, rechargeable = charged).
+	Set rtc_battery to the cell this batch actually has.
 10) On a DIY box, check the boot log says 'Mothbox hardware: DIY' and the display footer says MOTHBOX DIY.
     On a Pro box it must say PRO. If either is wrong, set hardware=pro/diy in mothbox_settings.csv and report it.

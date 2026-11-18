@@ -359,6 +359,11 @@ except Exception:
     health = None
 if health:
     alerts.append(health)
+try:
+    import clock_battery            # NO CLOCK BATTERY, CLOCK BATTERY LOW, CLOCK LOST ...
+    alerts.extend(clock_battery.display_alerts(str(CONTROL_ROOT)))
+except Exception as e:
+    print(f"[UpdateDisplay] could not read the clock battery status: {e}")
 schedule_errors = read_control(CONTROL_ROOT / "schedule_errors.txt", "errors", "")
 if schedule_errors:
     alerts.append("SCHEDULE ERROR: " + schedule_errors.replace(",", ", "))
