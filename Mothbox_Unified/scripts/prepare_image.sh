@@ -27,7 +27,7 @@ count() { [ -d "$1" ] && find "$1" -type f | wc -l || echo 0; }
 echo "This prepares THIS box's card to become the image for every other box. It will:"
 echo "  - delete all photos:    $(count $MB/photos) in photos/, $(count $MB/photos_backedup) in photos_backedup/"
 echo "  - delete all logs:      $(count $MB/logs) files in logs/"
-echo "  - wipe per-box state:   $STATE/*.txt (name, GPS, calibration, schedule state)"
+echo "  - wipe per-box state:   $STATE/*.txt + clock_battery_log.csv (name, GPS, calibration, schedule, coin cell)"
 echo "  - keep the ssh host keys, so every box from this image has the same one"
 echo "  - tidy the boot partition and the apt / journal caches"
 read -r -p "Type yes to continue: " answer
@@ -44,12 +44,13 @@ for d in photos photos_backedup logs; do
 done
 
 hdr "Per-box state (5a)"
-rm -f "$STATE"/*.txt "$STATE"/*.tmp
-ok "$STATE is empty -- it regenerates on first boot"
+rm -f "$STATE"/*.txt "$STATE"/*.tmp "$STATE"/clock_battery_log.csv
+ok "$STATE is empty -- it regenerates on first boot (incl. this box's coin cell history)"
 
 hdr "Test leftovers and caches (5b)"
 rm -rf "$MB/__pycache__" "$MB/tests/__pycache__" "$MB/scripts/__pycache__" "$MB/tools/__pycache__" "$MB/tools/mock_out"
 rm -f /home/pi/thermtest.log /home/pi/fat_*.txt /home/pi/settings_backup.csv
+[ -d /media/usbtest ] && ! mountpoint -q /media/usbtest && rmdir /media/usbtest 2>/dev/null
 ok "python caches, display mock output and test files removed"
 
 hdr "Per-box identity (5c)"

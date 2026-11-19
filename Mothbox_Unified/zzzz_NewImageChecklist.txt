@@ -23,7 +23,7 @@
    It asks before changing anything. The manual steps are kept below for reference.
    delete photo and photos_backed_up and logs
 5a) WIPE PER-BOX STATE (new in 6.0.2 -- this is NOT on the boot partition):
-	sudo rm -f /var/lib/mothbox/state/*.txt
+	sudo rm -f /var/lib/mothbox/state/*.txt /var/lib/mothbox/state/clock_battery_log.csv
 	Everything in there is generated and regenerates on first boot. If you skip
 	this, the image ships with THIS box's identity baked in:
 	  lat.txt / lon.txt  - your lab's GPS fix, embedded in every recipient's photo EXIF
