@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: CC0-1.0
+# libcamera pipeline settings for the Pi 5 (PiSP), loaded by TakePhoto.py via
+# LIBCAMERA_RPI_CONFIG_FILE -- see capture_yuv.py for the measurements.
+#
+# disable_hdr: the Pi's own multi-frame HDR (NOT our exposure bracketing).
+#   We never use it; turning it off skips allocating 2 full-resolution Bayer
+#   buffers (~129 MB at 64 MP). This is what lets a 1 GB Pi 5 take full-res photos.
+#
+# Do NOT add "disable_tdn": true -- the camera then fails to start at full
+# resolution (Invalid argument), and temporal denoise may help our stills.
+{
+        "version": 1.0,
+        "target": "pisp",
+
+        "pipeline_handler":
+        {
+                "disable_hdr": true
+        }
+}

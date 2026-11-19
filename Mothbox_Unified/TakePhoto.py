@@ -165,15 +165,21 @@ PHOTO_STARTED = time.time()   # what record_photo_taken() stamps
 
 
 import time
-from picamera2 import Picamera2, Preview
+# Must happen before picamera2 / libcamera load: turns off the Pi's multi-frame
+# HDR buffers (we never use them) so a 64 MP still fits in less memory.
+import capture_yuv
+print(f"[TakePhoto] {capture_yuv.setup_libcamera_env()}")
+from picamera2 import Picamera2, Preview, MappedArray
 from libcamera import controls
 from libcamera import Transform
+from libcamera import ColorSpace
 
 import time
 import datetime
 from datetime import datetime, timedelta
 computerName = "mothboxNOTSET"
-import cv2
+# (cv2 / OpenCV used to be imported here but nothing used it: ~a second and
+# tens of MB per photo, which on a 1 GB Pi 5 was enough to get TakePhoto killed.)
 
 import csv
 import sys
@@ -230,6 +236,15 @@ def restart_script():
         _sig.alarm(0)
     except Exception:
         pass
+    # Close the camera first. exec() keeps open file descriptors, so without
+    # this the calibration's preview buffers (~80 MB of camera memory) live on
+    # in the restarted script, which cannot free them -- on a 1 GB Pi 5 that
+    # left ~100 MB free at the moment of capture.
+    try:
+        picam2.close()
+    except Exception as e:
+        print(f"[TakePhoto] closing the camera before the restart failed: {e}")
+    capture_yuv.mem_report("camera closed for the restart")
     time.sleep(1)  # Optional: Add a small delay for clarity
     python_executable = sys.executable
     script_path = sys.argv[0]
@@ -527,7 +542,10 @@ def print_af_state(request):
 def run_calibration():
     global calib_lens_position, calib_exposure, camera_settings, width, height, picam2
     #preview_config = picam2.create_preview_configuration(main={'format': 'RGB888', 'size': (4624, 3472)})
-    preview_config = picam2.create_preview_configuration(main={'size': (1920*2, 1080*2)})
+    # 2 buffers, not picamera2's default 4: calibration only reads a few frames'
+    # metadata, and each XBGR 4K buffer is 33 MB (266 -> 183 MB measured on a
+    # Pi 5). Same sensor mode and exposure either way.
+    preview_config = picam2.create_preview_configuration(main={'size': (1920*2, 1080*2)}, buffer_count=2)
     #still_config = picam2.create_still_configuration(main={"size": (width, height), "format": "RGB888"}, buffer_count=1)
     picam2.configure(preview_config)
 
@@ -607,7 +625,8 @@ def run_calibration():
     # whether the subject is 10 cm or 2 m away.
     if not (success and focusstate == 2):
         print(f"[TakePhoto] AUTOFOCUS FAILED (AfState={AF_STATE_NAMES.get(focusstate, focusstate)}, "
-              f"lens ended at {new_lens_position}) -- something is probably covering the lens; "
+              f"scan stopped at {new_lens_position}) -- it found nothing sharp: a plain or "
+              f"washed-out target, or something covering the lens; "
               f"keeping the previous lens position {calib_lens_position}")
     elif not (AF_LENS_MIN <= new_lens_position <= AF_LENS_MAX):
         where = f"~{100.0/new_lens_position:.0f} cm" if new_lens_position > 0 else "infinity"
@@ -788,13 +807,24 @@ def takePhoto_Manual():
             #flashOff()
         flashtime=time.time()-start
 
-        pilImage = request.make_image("main")
-        PILs.append(pilImage)
+        if CAPTURE_FORMAT == capture_yuv.YUV:
+            # Encode while the camera buffer is still mapped; only the JPEG
+            # bytes (~12 MB) are kept, not a 193 MB RGB image.
+            _main = picam2.camera_configuration()["main"]
+            with MappedArray(request, "main") as _m:
+                _jpeg = capture_yuv.encode_yuv420_jpeg(_m.array, _main["size"][0], _main["size"][1],
+                                                       _main["stride"], quality=JPEG_QUALITY)
+            PILs.append(("jpeg", _jpeg, tuple(_main["size"])))
+            del _m, _jpeg
+        else:
+            pilImage = request.make_image("main")
+            PILs.append(pilImage)
         #image_buffer = request.make_array("main")
         #requests.append(image_buffer)
         
         #print(request.get_metadata()) # this is the metadata for this image
         metadatas.append(request.get_metadata())
+        capture_yuv.mem_report("frame captured")
         request.release()
 
         picam2.stop()
@@ -814,6 +844,8 @@ def takePhoto_Manual():
     for img in PILs:  
           exif_data=metadatas[i]
           pil_image = img
+          is_jpeg_bytes = isinstance(img, tuple)       # YUV capture: ("jpeg", bytes, size)
+          img_size = img[2] if is_jpeg_bytes else img.size
           # Save the image using PIL to get the image data on disk
           folderPath= "/home/pi/Desktop/Mothbox/photos/" #can't use relative directories with cron
           if not os.path.exists(folderPath):
@@ -840,12 +872,12 @@ def takePhoto_Manual():
           # (actual exposure / gain / lens position, camera module facts, GPS,
           # and the latest diagnostics readings already on disk). Any failure
           # in there just saves the photo without EXIF -- never loses it.
-          save_kwargs = {"quality": 96}
+          save_kwargs = {"quality": JPEG_QUALITY}
           if mothbox_exif is not None:
               exif_bytes = mothbox_exif.build_exif_bytes(
                   metadata=exif_data,
                   requested_exposure_us=exposure_times[i],
-                  image_size=img.size,
+                  image_size=img_size,
                   capture_time=now,
                   utc_offset_hours=utc_offset_hours,
                   computer_name=computerName,
@@ -859,7 +891,13 @@ def takePhoto_Manual():
               )
               if exif_bytes:
                   save_kwargs["exif"] = exif_bytes
-          img.save(filepath, **save_kwargs)
+          if is_jpeg_bytes:
+              data, exif_err = capture_yuv.add_exif(img[1], save_kwargs.get("exif"))
+              if exif_err:
+                  print(f"[TakePhoto] could not add EXIF ({exif_err}) -- saving without it")
+              capture_yuv.write_atomically(filepath, data)
+          else:
+              img.save(filepath, **save_kwargs)
           print("Image saved to "+filepath)
           i=i+1
 
@@ -957,6 +995,7 @@ else:
 
 
 #HDR Controls
+JPEG_QUALITY = 96
 CAPTURE_TIMEOUT_S = 20   # a healthy capture takes ~1 s; see flash watchdog notes above
 num_photos = 1
 exposuretime_width = 18000
@@ -1105,7 +1144,7 @@ if AutoCalibration and (timesincelastcalibration > AutoCalibrationPeriod):
     print(current_time)
     #picam2.configure(preview_config)
     #picam2.configure(capture_config_fastAuto)
-    run_calibration()
+    run_calibration()       # never returns: it restarts this script (restart_script)
 else:
     print("Don't Autocalibration")
 
@@ -1142,10 +1181,33 @@ exposuretime_width = int(camera_settings.pop("HDR_width",exposuretime_width))
 if(num_photos<1 or num_photos==2):
     num_photos=1
 
-capture_main = {"size": (width, height), "format": "RGB888", }
-capture_config = picam2.create_still_configuration(main=capture_main,raw=None, lores=None)
-capture_config_flipped =  picam2.create_still_configuration(main=capture_main, transform=Transform(vflip=True, hflip=True), raw=None, lores=None)
-picam2.configure(capture_config)
+# YUV on boxes with little RAM (see capture_yuv.py); CaptureFormat in
+# camera_settings.csv can force it: auto (default), yuv, rgb.
+_capture_setting = camera_settings.pop("CaptureFormat", "auto")
+_ram = capture_yuv.ram_mb()
+CAPTURE_FORMAT, _why = capture_yuv.choose_format(_capture_setting, _ram, ImageFileType)
+print(f"[TakePhoto] capture format {CAPTURE_FORMAT} ({_why}; {_ram} MB RAM)")
+if CAPTURE_FORMAT == capture_yuv.RGB and _ram is not None and _ram < capture_yuv.LOW_RAM_MB:
+    print("[TakePhoto] WARNING: RGB capture on a low-RAM Pi -- it may run out of memory")
+
+capture_main = {"size": (width, height), "format": CAPTURE_FORMAT, }
+# sYCC (full-range BT.601) is what JPEG expects -- the YUV path writes the
+# camera's YUV straight into the JPEG, so it has to be this.
+capture_config = picam2.create_still_configuration(main=capture_main,raw=None, lores=None,
+                                                   colour_space=ColorSpace.Sycc())
+capture_config_flipped =  picam2.create_still_configuration(main=capture_main, transform=Transform(vflip=True, hflip=True), raw=None, lores=None,
+                                                            colour_space=ColorSpace.Sycc())
+# Configure once, with the right orientation. There used to be a warm-up here
+# (configure, start for 1 s, stop, configure again): every full-resolution
+# start allocates and clears the camera's working buffers (~600 MB at 64 MP),
+# and the second configure discarded the controls the warm-up had set anyway.
+# takePhoto_Manual() applies the controls and runs the camera for 3 s before
+# the first frame, which is what lets exposure and the lens settle.
+if(VerticalFlip):
+    picam2.configure(capture_config_flipped)
+else:
+    picam2.configure(capture_config)
+capture_yuv.mem_report("capture configured")
 
 
 if camera_settings:
@@ -1156,19 +1218,6 @@ if camera_settings:
     camera_settings["AnalogueGain"] = float(calib_gain)
     picam2.set_controls(camera_settings)
 
-start_camera_or_warn()
-time.sleep(1)
-
-print("cam started");
-
-picam2.stop()
-
-if(VerticalFlip):
-    picam2.configure(capture_config_flipped)
-else:
-    picam2.configure(capture_config)
-
-time.sleep(.5)
 takePhoto_Manual()
 
 

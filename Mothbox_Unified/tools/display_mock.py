@@ -38,7 +38,7 @@ def _t(y, mo, d, h, mi):
 
 
 BASE = dict(
-    name="nastyMara", mode="ACTIVE", hw="pro", version="6.1.1",
+    name="nastyMara", mode="ACTIVE", hw="pro", version="6.1.2",
     battery_pct=36, next_wake=_t(2026, 10, 21, 8, 58), updated=_t(2026, 10, 20, 11, 0),
     phase="active", session_end=_t(2026, 10, 20, 12, 0), next_start=0,
     utc_offset="-5.0", sd_free_gb=105, sd_total_gb=114, sd_photos=238, usb=[],
@@ -79,7 +79,7 @@ STATUS_SCENARIOS = [
     ("08d_regular_cell", dict(alerts=["REGULAR CELL? NOT CHARGING"])),
 ]
 OTHER_SCREENS = [
-    ("09_boot_logo", lambda r: r.render_logo("pro", "6.1.1")),
+    ("09_boot_logo", lambda r: r.render_logo("pro", "6.1.2")),
     ("10_first_boot_wait", lambda r: r.render_wait()),
 ]
 
