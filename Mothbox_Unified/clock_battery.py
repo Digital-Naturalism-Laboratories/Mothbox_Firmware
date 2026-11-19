@@ -325,9 +325,84 @@ def was_clock_lost(state_dir):
     return read_status(state_dir).get("clock_lost") == "1"
 
 
+# ---------------------------------------------------------------------------
+# Clearing CLOCK LOST once the time is good again
+# ---------------------------------------------------------------------------
+DEFAULT_STATE_DIR = "/var/lib/mothbox/state"
+NTP_WAIT_S = 1800           # Debug mode: keep checking for a network time this long
+NTP_STEP_S = 15
+
+
+def ntp_synced():
+    """True once the system clock has been set from the network."""
+    try:
+        out = subprocess.run(["timedatectl", "show", "-p", "NTPSynchronized", "--value"],
+                             capture_output=True, text=True, timeout=10).stdout
+        return out.strip() == "yes"
+    except Exception:
+        return False
+
+
+def save_time_to_rtc():
+    """The system time is good: put it in the RTC too, so the next boot has it."""
+    try:
+        return subprocess.run(["hwclock", "-w"], capture_output=True, timeout=20).returncode == 0
+    except Exception:
+        return False
+
+
+def refresh_display():
+    try:
+        subprocess.run(["python3", "/home/pi/Desktop/Mothbox/UpdateDisplay.py", "--refresh"],
+                       capture_output=True, timeout=180)
+    except Exception:
+        pass
+
+
+def wait_for_network_time(state_dir, max_s=NTP_WAIT_S, step_s=NTP_STEP_S, synced=ntp_synced,
+                          on_good=None, sleep=time.sleep, now=time.time, log=print):
+    """
+    Debug mode, after a lost clock: wait for the network to set the time, then
+    save it to the RTC and clear CLOCK LOST. Returns True if it was cleared.
+    """
+    if not was_clock_lost(state_dir):
+        return False
+    waited = 0
+    while True:
+        if synced():
+            if on_good is not None:
+                on_good()
+            clear_clock_lost(state_dir, now())
+            log("[clock] time set from the network -- saved to the RTC, CLOCK LOST cleared")
+            return True
+        if waited >= max_s:
+            log(f"[clock] no network time after {max_s // 60} min -- CLOCK LOST stays until the time is set")
+            return False
+        sleep(step_s)
+        waited += step_s
+
+
+def _good_time():
+    save_time_to_rtc()
+
+
 if __name__ == "__main__":
-    # By hand:  sudo python3 clock_battery.py [rechargeable|regular]
+    # By hand:
+    #   sudo python3 clock_battery.py [rechargeable|regular]   check the coin cell
+    #   sudo python3 clock_battery.py --clock-ok               the time is right: clear CLOCK LOST
+    #   sudo python3 clock_battery.py --wait-ntp               what Debug mode runs in the background
     import sys
-    r = check(sys.argv[1] if len(sys.argv) > 1 else None)
-    print(r)
-    print("RTC lost power" if clock_lost(read_rtc_epoch()) else "RTC time looks sane")
+    arg = sys.argv[1] if len(sys.argv) > 1 else None
+    if arg == "--clock-ok":
+        print(f"system time now: {time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+        save_time_to_rtc()
+        print("CLOCK LOST cleared" if clear_clock_lost(DEFAULT_STATE_DIR, time.time())
+              else "CLOCK LOST was not set")
+        refresh_display()
+    elif arg == "--wait-ntp":
+        if wait_for_network_time(DEFAULT_STATE_DIR, on_good=_good_time):
+            refresh_display()
+    else:
+        r = check(arg)
+        print(r)
+        print("RTC lost power" if clock_lost(read_rtc_epoch()) else "RTC time looks sane")

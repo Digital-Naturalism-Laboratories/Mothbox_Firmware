@@ -184,5 +184,40 @@ class StatusFiles(unittest.TestCase):
                 self.assertTrue(f.readline().startswith("time,"))
 
 
+class WaitForNetworkTime(unittest.TestCase):
+    def _lost(self, d):
+        cb.write_status(d, FakeRTC(2.95).check("rechargeable"), True, 1000)
+
+    def test_clears_once_synced(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._lost(d)
+            answers = iter([False, False, True])
+            saved, slept = [], []
+            ok = cb.wait_for_network_time(d, synced=lambda: next(answers), on_good=lambda: saved.append(1),
+                                          sleep=slept.append, now=lambda: 2000, log=lambda m: None)
+            self.assertTrue(ok)
+            self.assertEqual(saved, [1], "the good time goes into the RTC")
+            self.assertFalse(cb.was_clock_lost(d))
+            self.assertEqual(cb.display_alerts(d), [])
+            self.assertEqual(len(slept), 2)
+
+    def test_gives_up(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._lost(d)
+            slept = []
+            ok = cb.wait_for_network_time(d, max_s=60, step_s=15, synced=lambda: False,
+                                          sleep=slept.append, log=lambda m: None)
+            self.assertFalse(ok)
+            self.assertTrue(cb.was_clock_lost(d))
+            self.assertEqual(sum(slept), 60)
+
+    def test_nothing_to_do(self):
+        with tempfile.TemporaryDirectory() as d:
+            called = []
+            self.assertFalse(cb.wait_for_network_time(d, synced=lambda: called.append(1) or True,
+                                                      log=lambda m: None))
+            self.assertEqual(called, [], "no lost clock: no checking at all")
+
+
 if __name__ == "__main__":
     unittest.main()

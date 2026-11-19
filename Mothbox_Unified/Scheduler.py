@@ -1558,12 +1558,7 @@ def refresh_display():
 
 def ntp_synced():
     """True once the system clock has been set from the network."""
-    try:
-        out = subprocess.run(["timedatectl", "show", "-p", "NTPSynchronized", "--value"],
-                             capture_output=True, text=True, timeout=10).stdout
-        return out.strip() == "yes"
-    except Exception:
-        return False
+    return clock_battery.ntp_synced()
 
 
 def clear_clock_lost_if_synced():
@@ -2250,6 +2245,16 @@ if mode in ("DEBUG", "PARTY"):
     # Before DebugMode.py / Party.py: Party.py never returns, and running
     # TakePhoto.py or Attract_On.py by hand to test should work straight away.
     session.write_state(session.DEBUG)
+    # Debug is the mode with wifi: if the clock was lost, wait in the
+    # background for the network to set it, then clear CLOCK LOST. (Sessions
+    # run with wifi off, so they can rarely confirm the time themselves.)
+    try:
+        if clock_battery.was_clock_lost(CONTROL_ROOT):
+            Popen(["python3", "/home/pi/Desktop/Mothbox/clock_battery.py", "--wait-ntp"],
+                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            log_info("Clock was lost -- waiting in the background for the network time to clear the alert.")
+    except Exception as e:
+        log_warn(f"Could not start the network-time check ({e})")
 
 if mode == "DEBUG":
     log_ok("Mode is DEBUG -- wifi on, cron off, staying alive.")
