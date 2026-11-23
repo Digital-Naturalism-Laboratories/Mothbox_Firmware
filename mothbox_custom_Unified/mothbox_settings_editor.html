@@ -367,20 +367,20 @@
       <div class="field">
         <label class="lbl" for="f-minute">Minute past the hour</label>
         <input type="number" id="f-minute" data-key="minute" min="0" max="59" step="1">
-        <p class="hint">A session that starts at hour <em>H</em> starts at <em>H</em>:<span id="minecho">00</span>.</p>
+        <p class="hint">A capture window that starts at hour <em>H</em> starts at <em>H</em>:<span id="minecho">00</span>.</p>
         <div class="fielderr" id="e-minute"></div>
         <details id="multimin">
           <summary>Advanced: several minutes per hour</summary>
-          <p class="hint" style="margin-top:.5rem">Every minute here is combined with <em>every</em> hour above &mdash; minutes <code>0;30</code> with hours <code>19;21</code> gives four sessions: 19:00, 19:30, 21:00, 21:30.</p>
+          <p class="hint" style="margin-top:.5rem">Every minute here is combined with <em>every</em> hour above &mdash; minutes <code>0;30</code> with hours <code>19;21</code> gives four capture windows: 19:00, 19:30, 21:00, 21:30.</p>
           <input type="text" id="f-minute-multi" placeholder="0;30" autocomplete="off" spellcheck="false">
           <div class="fielderr" id="e-minute-multi"></div>
         </details>
       </div>
 
       <div class="field">
-        <label class="lbl" for="f-runtime">Session length (minutes)</label>
+        <label class="lbl" for="f-runtime">Capture window length (minutes)</label>
         <input type="number" id="f-runtime" data-key="runtime" min="1" max="1440" step="1">
-        <p class="hint">How long the Mothbox stays awake taking photos each time. Sessions that touch or overlap the next one (less than 5 minutes apart) simply run as one long session.</p>
+        <p class="hint">How long each capture window lasts: the lights and camera run this long each time. Capture windows that touch or overlap the next one (less than 5 minutes apart) simply run as one long capture window.</p>
         <div class="fielderr" id="e-runtime"></div>
       </div>
 
@@ -393,7 +393,7 @@
       <div class="field" id="wrap-backup_interval">
         <label class="lbl" for="f-backup_interval">Minutes between backups</label>
         <input type="number" id="f-backup_interval" data-key="backup_interval" min="1" max="999" step="1">
-        <p class="hint">How often new photos are copied to the USB drive during a session. A final backup always runs at the end of every session, so a longer gap just saves a little power.</p>
+        <p class="hint">How often new photos are copied to the USB drive during a capture window. A final backup always runs at the end of every capture window, so a longer gap just saves a little power.</p>
         <div class="fielderr" id="e-backup_interval"></div>
       </div>
 
@@ -662,7 +662,7 @@ const DEFAULTS = [
   ["timezone", "America/Panama", " this must be an official timezone from the list of linux timezones (supplied in the neighboring file)"],
   ["autoSystemTime", "True", " leave this as True and the mothbox will automatically set its own time"],
   ["manualTime", "1986-04-06 11:11:11", " if the autoSystemTime is False the mothbox will get set to whatever value you put here ONE time and then disable manual time setting (to prevent Groundhog Days) until you set AutosystemTime to False again "],
-  ["runtime", "60", " how long each photo session lasts (in minutes). Sessions that touch or overlap the next one just keep going "],
+  ["runtime", "60", " how long each capture window lasts (in minutes): the lights and camera run this long each time. Capture windows that touch or overlap the next one just keep going "],
   ["weekday", "1;2;3;4;5;6;7", " add or remove days 1-7 for monday through sunday "],
   ["hour", "19;21;23;2;4", "specify what hour you want things to turn on in 24 timeframe separate multi values with a semicolon"],
   ["minute", "0", " specify a specific minute that the schedule will start"],
@@ -674,7 +674,7 @@ const DEFAULTS = [
   ["wifissid", "examplessid", " write an SSID of a wifi you want to add to the pi "],
   ["wifipass", "examplepass", " write the wifi password (not currently implemented)"],
   ["photo_interval", "2", " time in minutes between each photo. Default is 2 minutes"],
-  ["backup_interval", "5", " time in minutes between backups of new photos to the USB drive. Default is 5 (valid 1-999). A final backup always runs at the end of every session regardless"],
+  ["backup_interval", "5", " time in minutes between backups of new photos to the USB drive. Default is 5 (valid 1-999). A final backup always runs at the end of every capture window regardless"],
   ["hardware", "auto", " auto detects a Mothbox Pro PCB or a DIY relay build at boot. Set to pro or diy to force it if detection ever guesses wrong"],
   ["rtc_battery", "rechargeable", " the clock coin cell: regular (CR2032 - never charged) or rechargeable (ML2020/ML2032 - charged). Must match the cell in the box: charging a regular cell can make it leak and an uncharged rechargeable one runs down"]
 ];
@@ -1130,7 +1130,7 @@ function doRefresh(skipEl) {
   const runtime = numOf(getVal("runtime"));
   fieldErr("e-runtime", (() => {
     if (getVal("runtime") === "" || isNaN(runtime) || !Number.isInteger(runtime)) return "Enter a whole number of minutes.";
-    if (runtime < 1) return "A session has to last at least a minute.";
+    if (runtime < 1) return "A capture window has to last at least a minute.";
     if (runtime > 1440) return "That is longer than a day.";
     return "";
   })(), errors);
@@ -1140,7 +1140,7 @@ function doRefresh(skipEl) {
     if (!hasRow("photo_interval") && !touched.has("photo_interval")) return "";
     if (getVal("photo_interval") === "" || isNaN(interval) || !Number.isInteger(interval)) return "Enter a whole number of minutes.";
     if (interval < 1) return "Must be at least 1 minute.";
-    if (!isNaN(runtime) && interval > runtime) return "Longer than the session itself — you would only get the first photo.";
+    if (!isNaN(runtime) && interval > runtime) return "Longer than the capture window itself — you would only get the first photo.";
     return "";
   })(), errors);
 
@@ -1322,8 +1322,8 @@ function drawSchedule(wd, hrs, mins, runtime, interval) {
   const stats = [
     [dur > 0 ? span((n) => n.minutes, (m) => (m / 60).toFixed(1)) + " h" : "—", "hours run / night"],
     [countedPhotos ? span((n) => n.photos, (v) => v.toLocaleString()) : "—", "photos / night"],
-    [span((n) => n.sessions, String), "sessions / night"],
-    [shotsPerSession !== null ? shotsPerSession : "—", "photos / session"],
+    [span((n) => n.sessions, String), "capture windows / night"],
+    [shotsPerSession !== null ? shotsPerSession : "—", "photos / capture window"],
     [perNight.length, "nights / week"],
     [photosPerWeek !== null ? photosPerWeek.toLocaleString() : "—", "photos / week"]
   ];
@@ -1342,12 +1342,12 @@ function drawSchedule(wd, hrs, mins, runtime, interval) {
     for (let i = 0; i < starts.length; i++) {
       const next = (i + 1 < starts.length) ? starts[i + 1] : starts[0] + 1440;
       if (starts[i] + dur > next - MERGE_GAP_MIN) {
-        warns.push("The session starting at " + fmtMin(starts[i]) + " runs into the next one at " +
-          fmtMin(next % 1440) + ", so the Mothbox keeps going and runs them as one long session.");
+        warns.push("The capture window starting at " + fmtMin(starts[i]) + " runs into the next one at " +
+          fmtMin(next % 1440) + ", so the Mothbox keeps going and runs them as one long capture window.");
         break;
       }
     }
-    if (dur >= 1440) warns.push("A session this long never ends before the next one starts: the Mothbox will stay on all the time.");
+    if (dur >= 1440) warns.push("A capture window this long never ends before the next one starts: the Mothbox will stay on all the time.");
   }
   if (validHrs.length && validMins.length > 1) {
     const list = [];

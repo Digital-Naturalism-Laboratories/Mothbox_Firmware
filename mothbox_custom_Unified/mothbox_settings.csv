@@ -4,7 +4,7 @@ name, customName, if 'autoname' is False the mothbox will use the name you suppl
 timezone,America/Panama, this must be an official timezone from the list of linux timezones (supplied in the neighboring file)
 autoSystemTime,True, leave this as True and the mothbox will automatically set its own time
 manualTime,2026-02-22 15:26:11, if the autoSystemTime is False the mothbox will get set to whatever value you put here ONE time and then disable manual time setting (to prevent Groundhog Days) until you set AutosystemTime to False again 
-runtime, 60, how long each photo session lasts (in minutes). Sessions that touch or overlap the next one just keep going 
+runtime, 60, how long each capture window lasts (in minutes): the lights and camera run this long each time. Capture windows that touch or overlap the next one just keep going 
 weekday,1;2;3;4;5;6;7, add or remove days 1-7 for monday through sunday 
 hour,19;21;23;2;4,specify what hour you want things to turn on in 24 timeframe separate multi values with a semicolon
 minute,0, specify a specific minute that the schedule will start
@@ -17,5 +17,5 @@ wifissid, examplessid, write an SSID of a wifi you want to add to the pi
 wifipass, examplepass, write the wifi password (not currently implemented)
 photo_interval,2, time in minutes between each photo. Default is 2 minutes
 hardware,auto, auto detects a Mothbox Pro PCB or a DIY relay build at boot. Set to pro or diy to force it if detection ever guesses wrong
-backup_interval,5, time in minutes between backups of new photos to the USB drive. Default is 5 (valid 1-999). A final backup always runs at the end of every session regardless
+backup_interval,5, time in minutes between backups of new photos to the USB drive. Default is 5 (valid 1-999). A final backup always runs at the end of every capture window regardless
 rtc_battery,rechargeable, the clock coin cell: regular (CR2032 - never charged) or rechargeable (ML2020/ML2032 - charged). Must match the cell in the box: charging a regular cell can make it leak and an uncharged rechargeable one runs down

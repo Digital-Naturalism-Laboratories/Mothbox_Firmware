@@ -31,6 +31,17 @@ import piexif.helper
 LOG_DIR = "/home/pi/Desktop/Mothbox/logs"
 TAIL_BYTES = 16 * 1024  # a diagnostics run is ~600 bytes; this covers many
 
+def device_type_id(body_model):
+    """The ontology's device-type id for a body name: "Mothbox Pro" -> "mothbox-pro",
+    "Mothbox DIY" -> "mothbox-diy"; None when the body isn't a built-in type."""
+    text = str(body_model or "").strip().lower().replace(" ", "").replace("-", "")
+    if text.endswith("pro"):
+        return "mothbox-pro"
+    if text.endswith("diy"):
+        return "mothbox-diy"
+    return None
+
+
 # Camera module facts, keyed by the sensor name from picam2.camera_properties['Model'].
 # Only put in numbers you can cite. Unknown sensors get no lens tags at all.
 CAMERA_MODULES = {
@@ -256,6 +267,9 @@ def build_exif_dict(*, metadata, requested_exposure_us, image_size, capture_time
     comment = {
         "mothbox": _ascii(computer_name),
         "firmware": sw,
+        # Which built-in device type this body is (Automated Insect Monitoring Ontology:
+        # Device Type; ids from its device-types/device-types.json).
+        "deviceTypeID": device_type_id(body),
         "capture": {
             "exposure_us": actual_exp_us,
             "exposure_us_requested": requested_exposure_us,
