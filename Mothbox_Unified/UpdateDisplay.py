@@ -384,6 +384,15 @@ info = dict(
     lat=lat, lon=lon, alerts=alerts,
 )
 
+# Power source chosen in the settings editor (device_type row): when it leaves out a
+# battery (grid, solar...), the header shows the raw input voltage instead of a gauge.
+try:
+    import mothbox_exif
+    if not display_render.shows_battery(mothbox_exif.load_device_from_settings(usersettingsFpath)):
+        info["input_voltage"] = None if voltage == -1 else voltage
+except Exception as e:
+    print(f"[UpdateDisplay] could not read the power source ({e!r}); showing the battery gauge")
+
 # The Mothbox logo is shown on the first update after each boot. It takes the
 # place of the clear-to-white refresh this script always did before drawing,
 # so it costs no extra refresh -- only LOGO_HOLD_S of looking at it. /run is

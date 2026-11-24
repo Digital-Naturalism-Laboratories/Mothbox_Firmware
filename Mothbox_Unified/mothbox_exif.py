@@ -31,6 +31,35 @@ import piexif.helper
 LOG_DIR = "/home/pi/Desktop/Mothbox/logs"
 TAIL_BYTES = 16 * 1024  # a diagnostics run is ~600 bytes; this covers many
 
+SETTINGS_CSV = "/boot/firmware/mothbox_custom/mothbox_settings.csv"
+DEVICE_FIELDS = ("deviceTypeID", "deviceType", "derivedFrom", "maker", "hardwareVersion",
+                 "attractors", "targets", "sensors", "powerSources", "computer", "customFields",
+                 "description")
+
+
+def load_device_from_settings(path=SETTINGS_CSV):
+    """The device chosen in the settings editor (the JSON in the device_type row), or None.
+
+    Never raises: a missing file, a missing row or broken JSON just means no device.
+    """
+    try:
+        import csv
+        import json
+        with open(path, newline="", encoding="utf-8-sig", errors="replace") as f:
+            for row in csv.reader(f):
+                if len(row) >= 2 and row[0].strip().lower() == "device_type":
+                    value = row[1].strip()
+                    if not value:
+                        return None
+                    device = json.loads(value)
+                    if isinstance(device, dict) and device.get("deviceTypeID"):
+                        return {k: device[k] for k in DEVICE_FIELDS if k in device}
+                    return None
+    except Exception as e:
+        print(f"[mothbox_exif] could not read device_type from {path} ({e!r})")
+    return None
+
+
 def device_type_id(body_model):
     """The ontology's device-type id for a body name: "Mothbox Pro" -> "mothbox-pro",
     "Mothbox DIY" -> "mothbox-diy"; None when the body isn't a built-in type."""
@@ -188,7 +217,7 @@ def _r(v, nd=4):
 def build_exif_dict(*, metadata, requested_exposure_us, image_size, capture_time,
                     utc_offset_hours, computer_name, software_version, sensor_name,
                     lat=None, lon=None, diagnostics=None, hdr_index=0, hdr_count=1,
-                    image_id=None, flash_fired=True, body_model=None):
+                    image_id=None, flash_fired=True, body_model=None, device=None):
     """
     Assemble the piexif dict. Pure function of its inputs (plus the Pi serial),
     so it can be unit-tested off the Pi. See build_exif_bytes() for the
@@ -267,9 +296,9 @@ def build_exif_dict(*, metadata, requested_exposure_us, image_size, capture_time
     comment = {
         "mothbox": _ascii(computer_name),
         "firmware": sw,
-        # Which built-in device type this body is (Automated Insect Monitoring Ontology:
-        # Device Type; ids from its device-types/device-types.json).
-        "deviceTypeID": device_type_id(body),
+        # Which device type this is (Automated Insect Monitoring Ontology: Device Type):
+        # the one chosen in the settings editor, else the built-in type for this body.
+        "deviceTypeID": (device or {}).get("deviceTypeID") or device_type_id(body),
         "capture": {
             "exposure_us": actual_exp_us,
             "exposure_us_requested": requested_exposure_us,
@@ -286,6 +315,10 @@ def build_exif_dict(*, metadata, requested_exposure_us, image_size, capture_time
         "camera": {"sensor": str(sensor_name), **{k: v for k, v in cam.items() if k != "model"}},
         "diagnostics": {k: _r(v) for k, v in diagnostics.items()},
     }
+    if device:
+        # The whole device description from the settings editor: type, hardware version,
+        # attractors, targets and sensors, so the photo says what took it.
+        comment["device"] = device
     if lat is not None and lon is not None:
         comment["gps"] = {"lat": _r(lat, 6), "lon": _r(lon, 6)}
     exif[piexif.ExifIFD.UserComment] = piexif.helper.UserComment.dump(

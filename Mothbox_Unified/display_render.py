@@ -329,11 +329,23 @@ def when_field(info):
     return "NEXT WAKE", format_when(info.get("next_wake")) or "not set"
 
 
+def shows_battery(device):
+    """Whether the header shows the battery gauge. Only when the chosen power sources leave
+    out a battery (grid, solar...) does it show the input voltage instead; with no power
+    source chosen it keeps the battery gauge."""
+    sources = [str(p.get("powerSourceType") or "").strip().lower()
+               for p in ((device or {}).get("powerSources") or []) if isinstance(p, dict)]
+    sources = [s for s in sources if s]
+    return not sources or "battery" in sources
+
+
 def render_status(info):
     """
     The normal status screen. `info` keys (any may be missing or junk):
       name, mode, hw, version                         strings
       battery_pct                                     0-100, None = unknown
+      input_voltage  volts; when the key is present (not on battery) the header
+                     shows this instead of the battery gauge, None = unknown
       next_wake, updated                              epoch seconds
       phase, session_end, next_start                  see when_field()
       utc_offset                                      e.g. "-5.0"
@@ -357,20 +369,27 @@ def render_status(info):
     # --- header: name | battery -----------------------------------------
     HEADER_H = 22
     NAME_SAMPLE = "0Mhy%"      # centre WITH a descender so 'y'/'g' clear the rule
-    pct = get("battery_pct")
-    try:
-        pct = None if pct is None or float(pct) < 0 else float(pct)
-    except (TypeError, ValueError):
-        pct = None
-    pct_txt = "?" if pct is None else f"{pct:.0f}%"
     big = font("big")
-    batt_x = WIDTH - (26 + text_w(big, pct_txt) + 1 + 3)
-    low_batt = pct is not None and pct <= LOW_BATTERY_PCT
-    if low_batt:
-        draw.rectangle([batt_x - 3, 0, WIDTH, HEADER_H - 1], fill=BLACK)
-    draw_battery(draw, batt_x, 6, pct, inverted=low_batt)
-    bold_text(draw, (batt_x + 26, centred_y(big, 0, HEADER_H, NAME_SAMPLE)), pct_txt, big,
-              WHITE if low_batt else BLACK)
+    if "input_voltage" in info:
+        # Not on battery (grid, solar...): the raw input voltage, no gauge.
+        volts = _num(get("input_voltage"))
+        volts_txt = "?V" if volts is None or volts < 0 else f"{volts:.1f}V"
+        batt_x = WIDTH - (text_w(big, volts_txt) + 1 + 3)
+        bold_text(draw, (batt_x, centred_y(big, 0, HEADER_H, NAME_SAMPLE)), volts_txt, big, BLACK)
+    else:
+        pct = get("battery_pct")
+        try:
+            pct = None if pct is None or float(pct) < 0 else float(pct)
+        except (TypeError, ValueError):
+            pct = None
+        pct_txt = "?" if pct is None else f"{pct:.0f}%"
+        batt_x = WIDTH - (26 + text_w(big, pct_txt) + 1 + 3)
+        low_batt = pct is not None and pct <= LOW_BATTERY_PCT
+        if low_batt:
+            draw.rectangle([batt_x - 3, 0, WIDTH, HEADER_H - 1], fill=BLACK)
+        draw_battery(draw, batt_x, 6, pct, inverted=low_batt)
+        bold_text(draw, (batt_x + 26, centred_y(big, 0, HEADER_H, NAME_SAMPLE)), pct_txt, big,
+                  WHITE if low_batt else BLACK)
 
     name = str(get("name") or "?")
     if len(name) > NAME_MAX_CHARS:

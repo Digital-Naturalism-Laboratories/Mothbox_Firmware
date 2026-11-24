@@ -106,6 +106,22 @@ finally:
     r.ImageFont.truetype, r.ImageFont.core = real_tt, real_core
     r._font_cache.clear()
 
+# --- power source: battery gauge, or the raw input voltage --------------
+check("no power source chosen keeps the battery gauge", r.shows_battery(None), True)
+check("an empty power list keeps the battery gauge", r.shows_battery({"powerSources": []}), True)
+check("battery among the sources keeps the gauge",
+      r.shows_battery({"powerSources": [{"powerSourceType": "solar"}, {"powerSourceType": "Battery"}]}), True)
+check("grid only shows the voltage", r.shows_battery({"powerSources": [{"powerSourceType": "grid"}]}), False)
+check("solar only shows the voltage", r.shows_battery({"powerSources": [{"powerSourceType": "solar"}]}), False)
+gauge = status(battery_pct=55)
+volts = status(battery_pct=55, input_voltage=12.34)
+check("the voltage header differs from the gauge", gauge.tobytes() != volts.tobytes(), True)
+check("the voltage header draws no battery outline where the gauge goes",
+      any(black(volts, x, 6) for x in range(150, 250)) and volts.tobytes() != gauge.tobytes(), True)
+check("unknown voltage still renders", status(input_voltage=None).size, (250, 122))
+check("UpdateDisplay passes the input voltage only when not on battery",
+      "shows_battery(" in open(os.path.join(ROOT, "UpdateDisplay.py")).read(), True)
+
 # --- UpdateDisplay draws first, then talks to the panel -------------------
 src = open(os.path.join(ROOT, "UpdateDisplay.py")).read()
 main = src[src.index("# ------------- Drawing"):]

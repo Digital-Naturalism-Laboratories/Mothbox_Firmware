@@ -199,6 +199,9 @@ except Exception as _e:
     print(f"[TakePhoto] mothbox_hw unavailable ({_e}); assuming Mothbox Pro")
     mothbox_hw = None
     MOTHBOX_BODY = "Mothbox Pro"
+# The device chosen in the settings editor (type, attractors, targets, sensors), baked into
+# every photo's EXIF; None when the settings file doesn't name one.
+MOTHBOX_DEVICE = mothbox_exif.load_device_from_settings() if mothbox_exif is not None else None
 import subprocess
 
 
@@ -888,6 +891,7 @@ def takePhoto_Manual():
                   hdr_index=i, hdr_count=num_photos,
                   image_id=computerName + "_" + timestamp + hdr_suffix,
                   body_model=MOTHBOX_BODY,
+                  device=MOTHBOX_DEVICE,
               )
               if exif_bytes:
                   save_kwargs["exif"] = exif_bytes

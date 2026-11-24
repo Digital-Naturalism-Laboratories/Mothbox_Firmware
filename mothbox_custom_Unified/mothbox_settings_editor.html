@@ -122,6 +122,19 @@
   input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   input:disabled { opacity: .6; cursor: not-allowed; }
   .row { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
+  .devlist { display: flex; flex-direction: column; gap: .4rem; margin-top: .3rem; }
+  .devrow { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; }
+  .devrow input[type=text] { max-width: 13rem; }
+  .devrow select { max-width: 13rem; }
+  #f-devdesc { width: 100%; max-width: 40rem; font: inherit; }
+  .powerchecks { display: flex; gap: 1.2rem; flex-wrap: wrap; }
+  .powerchecks label { display: inline-flex; align-items: center; gap: .35rem; }
+  .devrow input[type=number] { max-width: 6.5rem; }
+  .devrow .unit { color: var(--muted); font-size: .8rem; margin-left: -.25rem; }
+  .devrow button.rm { padding: .2rem .55rem; }
+  .devsub { display: flex; align-items: baseline; gap: .6rem; margin-top: 1rem; }
+  .devsub h3 { margin: 0; font-size: .92rem; }
+  .devsummary { color: var(--muted); font-size: .85rem; margin-top: .4rem; }
   .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
   .seg button {
     border: 0;
@@ -303,6 +316,91 @@
     </section>
 
     <section>
+      <h2>Device</h2>
+      <p class="sechint">What this Mothbox is built from. It is written into every photo, so the data always says which device, attractors, targets and sensors took it.</p>
+
+      <div class="field">
+        <label class="lbl" for="f-devtype">Device type</label>
+        <select id="f-devtype"></select>
+        <p class="hint">Pick a standard device, or customize one to match this box (a different attractor, a bigger sheet&hellip;).</p>
+        <div class="devsummary" id="devsummary"></div>
+        <div class="fielderr" id="e-devtype"></div>
+      </div>
+
+      <div id="devcustom" hidden>
+        <div class="field">
+          <label class="lbl" for="f-devname">Name of your device type</label>
+          <input type="text" id="f-devname" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="field">
+          <label class="lbl" for="f-devhw">Hardware version</label>
+          <input type="text" id="f-devhw" placeholder="e.g. 5.1.0" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="devsub"><h3>Attractors</h3><span class="hint">zero or more</span><button type="button" id="dev-add-attractor">Add attractor</button></div>
+        <div class="devlist" id="dev-attractors"></div>
+        <div class="devsub"><h3>Targets</h3><span class="hint">zero or more: what creatures land on</span><button type="button" id="dev-add-target">Add target</button></div>
+        <div class="devlist" id="dev-targets"></div>
+        <div class="devsub"><h3>Sensors</h3><span class="hint">one or more</span><button type="button" id="dev-add-sensor">Add sensor</button></div>
+        <div class="devlist" id="dev-sensors"></div>
+        <div class="field" style="margin-top:1rem">
+          <label class="lbl" for="f-devdesc">Description</label>
+          <textarea id="f-devdesc" rows="3" placeholder="Notes about the whole device"></textarea>
+        </div>
+      </div>
+      <datalist id="dl-attractor-types"></datalist>
+      <datalist id="dl-attractor-locations"></datalist>
+      <datalist id="dl-target-types"></datalist>
+      <datalist id="dl-target-materials"></datalist>
+      <datalist id="dl-target-colors"></datalist>
+      <datalist id="dl-batteries"></datalist>
+      <div class="field">
+        <button type="button" id="btn-devcustomize">Customize this device</button>
+      </div>
+
+      <div class="devsub"><h3>Power source</h3><span class="hint">optional: one or more</span></div>
+      <div class="field powerchecks">
+        <label><input type="checkbox" id="f-pw-battery"> Battery</label>
+        <label><input type="checkbox" id="f-pw-grid"> Grid</label>
+        <label><input type="checkbox" id="f-pw-solar"> Solar</label>
+      </div>
+      <div class="field" id="wrap-batmodel" hidden>
+        <label class="lbl" for="f-batmodel">Battery model</label>
+        <input type="text" id="f-batmodel" list="dl-batteries" placeholder="e.g. Standard TalentCell PB120B1" autocomplete="off" spellcheck="false">
+        <p class="hint">Choosing a known battery fills in the numbers below.</p>
+      </div>
+      <p class="hint">The battery numbers drive the battery gauge and the low-power shutdown, so they are used even if no power source is chosen (the defaults are a Standard TalentCell PB120B1). Read them off the battery itself.</p>
+      <div class="twocol">
+      <div>
+        <div class="field" id="wrap-bat_voltage">
+          <label class="lbl" for="f-bat_voltage">Nominal voltage (V)</label>
+          <input type="number" id="f-bat_voltage" data-key="bat_voltage" step="0.1" min="0">
+          <div class="fielderr" id="e-bat_voltage"></div>
+        </div>
+
+        <div class="field" id="wrap-bat_Wh">
+          <label class="lbl" for="f-bat_Wh">Capacity (watt-hours)</label>
+          <input type="number" id="f-bat_Wh" data-key="bat_Wh" step="1" min="0">
+          <p class="hint">TalentCell PB1202B is 142 Wh. Only have amp-hours? Multiply Ah &times; volts.</p>
+          <div class="fielderr" id="e-bat_Wh"></div>
+        </div>
+      </div>
+      <div>
+        <div class="field">
+          <label class="lbl" for="f-bat_80perVolts">Voltage at 80% full (V)</label>
+          <input type="number" id="f-bat_80perVolts" data-key="bat_80perVolts" step="0.1" min="0">
+          <div class="fielderr" id="e-bat_80perVolts"></div>
+        </div>
+
+        <div class="field">
+          <label class="lbl" for="f-bat_20perVolts">Voltage at 20% full (V)</label>
+          <input type="number" id="f-bat_20perVolts" data-key="bat_20perVolts" step="0.1" min="0">
+          <div class="fielderr" id="e-bat_20perVolts"></div>
+        </div>
+      </div>
+      </div>
+    </section>
+
+    <section>
       <h2>Time &amp; place</h2>
       <p class="sechint">The timezone must be one of the official names in <code>timezone_list.txt</code>.</p>
 
@@ -433,40 +531,6 @@
       </div>
     </section>
 
-    <section>
-      <h2>Battery</h2>
-      <p class="sechint">Used for the battery gauge and the low-power shutdown. Read these off the battery itself.</p>
-
-      <div class="twocol">
-      <div>
-        <div class="field" id="wrap-bat_voltage">
-          <label class="lbl" for="f-bat_voltage">Nominal voltage (V)</label>
-          <input type="number" id="f-bat_voltage" data-key="bat_voltage" step="0.1" min="0">
-          <div class="fielderr" id="e-bat_voltage"></div>
-        </div>
-
-        <div class="field" id="wrap-bat_Wh">
-          <label class="lbl" for="f-bat_Wh">Capacity (watt-hours)</label>
-          <input type="number" id="f-bat_Wh" data-key="bat_Wh" step="1" min="0">
-          <p class="hint">TalentCell PB1202B is 142 Wh. Only have amp-hours? Multiply Ah &times; volts.</p>
-          <div class="fielderr" id="e-bat_Wh"></div>
-        </div>
-      </div>
-      <div>
-        <div class="field">
-          <label class="lbl" for="f-bat_80perVolts">Voltage at 80% full (V)</label>
-          <input type="number" id="f-bat_80perVolts" data-key="bat_80perVolts" step="0.1" min="0">
-          <div class="fielderr" id="e-bat_80perVolts"></div>
-        </div>
-
-        <div class="field">
-          <label class="lbl" for="f-bat_20perVolts">Voltage at 20% full (V)</label>
-          <input type="number" id="f-bat_20perVolts" data-key="bat_20perVolts" step="0.1" min="0">
-          <div class="fielderr" id="e-bat_20perVolts"></div>
-        </div>
-      </div>
-      </div>
-    </section>
 
     <section id="sec-other" hidden>
       <h2>Other settings in this file</h2>
@@ -676,6 +740,7 @@ const DEFAULTS = [
   ["photo_interval", "2", " time in minutes between each photo. Default is 2 minutes"],
   ["backup_interval", "5", " time in minutes between backups of new photos to the USB drive. Default is 5 (valid 1-999). A final backup always runs at the end of every capture window regardless"],
   ["hardware", "auto", " auto detects a Mothbox Pro PCB or a DIY relay build at boot. Set to pro or diy to force it if detection ever guesses wrong"],
+  ["device_type", "", " the device this Mothbox is (written by the settings editor as JSON): its type, attractors, targets and sensors. Written into every photo"],
   ["rtc_battery", "rechargeable", " the clock coin cell: regular (CR2032 - never charged) or rechargeable (ML2020/ML2032 - charged). Must match the cell in the box: charging a regular cell can make it leak and an uncharged rechargeable one runs down"]
 ];
 
@@ -684,7 +749,7 @@ const DEFAULTS = [
 const HANDLED = new Set(["autoname", "name", "timezone", "autoSystemTime", "manualTime",
   "runtime", "weekday", "hour", "minute", "bat_voltage", "bat_Wh",
   "bat_80perVolts", "bat_20perVolts", "wifissid", "wifipass", "photo_interval",
-  "backup_interval", "hardware", "rtc_battery", "second"]);   /* 'second' is not used by the Mothbox -- kept in the file, not shown */
+  "backup_interval", "hardware", "rtc_battery", "second", "device_type"]);   /* 'second' is not used by the Mothbox -- kept in the file, not shown */
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -1190,6 +1255,10 @@ function doRefresh(skipEl) {
   buildOtherFields();
   drawSchedule(wd, hrs, mins, runtime, interval);
 
+  /* --- device --- */
+  deviceErrors().forEach((e) => errors.push(e));
+  $("e-devtype").textContent = deviceErrors().join(" ");
+
   /* --- preview + save button --- */
   const text = serialize();
   $("preview").textContent = text;
@@ -1398,8 +1467,880 @@ function serialize() {
 function showForm() {
   $("form").hidden = false;
   $("drop").hidden = true;
+  loadDeviceFromSettings();
   refresh();
 }
+
+
+/* ------------------------------------------------------------------ *
+ * Device (Automated Insect Monitoring Ontology: Device, Device Type).
+ *
+ * STANDARD_DEVICE_TYPES is a copy of the ontology's device-types/device-types.json;
+ * after editing that file, run its device-types/sync-copies.py to update this copy. The chosen device is saved as JSON in the
+ * device_type row and written into every photo's EXIF by the firmware.
+ * ------------------------------------------------------------------ */
+const STANDARD_DEVICE_TYPES = [
+  {
+    "deviceTypeID": "mothbox-pro",
+    "deviceType": "Standard Mothbox Pro",
+    "derivedFrom": null,
+    "maker": "Digital Naturalism Laboratories",
+    "hardwareVersion": "5.0.6",
+    "firmware": {
+      "family": "Mothbox Unified 6.x",
+      "version": "6.1.2",
+      "hardwareID": "pro"
+    },
+    "attractors": [
+      {
+        "channel": "ATTRACT_A",
+        "attractorType": "Mothbeam (UV)",
+        "hardwareVersion": "5.0.3",
+        "attractorLocation": "internal",
+        "configuration": "1 switch",
+        "powerW": 2
+      },
+      {
+        "channel": "ATTRACT_B",
+        "attractorType": "Mothbeam (Visible)",
+        "hardwareVersion": "5.0.3",
+        "attractorLocation": "internal",
+        "configuration": "1 switch",
+        "powerW": 2
+      }
+    ],
+    "targets": [
+      {
+        "targetType": "sheet",
+        "material": "felt",
+        "color": null,
+        "widthCm": 28.885,
+        "heightCm": 20.5294,
+        "distanceCm": 24.5
+      }
+    ],
+    "sensors": [
+      {
+        "sensorType": "camera",
+        "model": "Arducam 64MP OwlSight (OV64A40)",
+        "lens": "Arducam B0483 6.65mm F1.9",
+        "resolution": "64 MP",
+        "effectiveResolutionPxPerMm": null,
+        "sensitivityRange": null,
+        "orientation": null,
+        "notes": null
+      }
+    ],
+    "powerSources": [],
+    "computer": "Raspberry Pi 5",
+    "customFields": {},
+    "description": null
+  },
+  {
+    "deviceTypeID": "mothbox-diy",
+    "deviceType": "Standard Mothbox DIY",
+    "derivedFrom": null,
+    "maker": "Digital Naturalism Laboratories",
+    "hardwareVersion": null,
+    "firmware": {
+      "family": "Mothbox Unified 6.x",
+      "version": null,
+      "hardwareID": "diy"
+    },
+    "attractors": [
+      {
+        "channel": "ATTRACT_A",
+        "attractorType": null,
+        "hardwareVersion": null,
+        "attractorLocation": null,
+        "configuration": null,
+        "powerW": null
+      },
+      {
+        "channel": "ATTRACT_B",
+        "attractorType": null,
+        "hardwareVersion": null,
+        "attractorLocation": null,
+        "configuration": null,
+        "powerW": null
+      }
+    ],
+    "targets": [
+      {
+        "targetType": null,
+        "material": null,
+        "color": null,
+        "widthCm": null,
+        "heightCm": null,
+        "distanceCm": null
+      }
+    ],
+    "sensors": [
+      {
+        "sensorType": "camera",
+        "model": "Arducam 64MP OwlSight (OV64A40)",
+        "lens": "Arducam B0483 6.65mm F1.9",
+        "effectiveResolutionPxPerMm": null,
+        "sensitivityRange": null,
+        "orientation": null,
+        "resolution": "64 MP",
+        "notes": null
+      }
+    ],
+    "computer": "Raspberry Pi 5",
+    "powerSources": [],
+    "customFields": {},
+    "description": null
+  },
+  {
+    "deviceTypeID": "ami-device",
+    "deviceType": "AMI Device",
+    "derivedFrom": null,
+    "maker": "UKCEH",
+    "hardwareVersion": null,
+    "firmware": {
+      "family": null,
+      "version": null,
+      "hardwareID": null
+    },
+    "attractors": [
+      {
+        "channel": null,
+        "attractorType": null,
+        "hardwareVersion": null,
+        "attractorLocation": null,
+        "configuration": null,
+        "powerW": null
+      }
+    ],
+    "targets": [],
+    "sensors": [
+      {
+        "sensorType": "camera",
+        "model": null,
+        "lens": null,
+        "resolution": null,
+        "effectiveResolutionPxPerMm": null,
+        "sensitivityRange": null,
+        "orientation": null,
+        "notes": null
+      }
+    ],
+    "powerSources": [
+      {
+        "powerSourceType": "solar",
+        "model": null,
+        "capacityWh": null,
+        "nominalVoltageV": null,
+        "voltageAt80PercentV": null,
+        "voltageAt20PercentV": null
+      },
+      {
+        "powerSourceType": "battery",
+        "model": "rechargeable",
+        "capacityWh": null,
+        "nominalVoltageV": null,
+        "voltageAt80PercentV": null,
+        "voltageAt20PercentV": null
+      }
+    ],
+    "computer": "Raspberry Pi 4",
+    "customFields": {
+      "source": "InsectAI COST Action hardware-db (https://insectai-cost-action.github.io/hardware-db/), 2026-11-23",
+      "sizeTransportMm": "550 x 350 x 230",
+      "sizeDeployedMm": "550 x 350 x 500",
+      "weightKg": 15,
+      "powerAutonomy": "∞",
+      "captureModes": "Scheduled photo; Time-lapse",
+      "connectivity": "USB (wired); SD card",
+      "costUnitBuild": 900,
+      "construction": "Fully custom: Designed and fabricated entirely by the user (e.g custom PCB)",
+      "documentationURL": "https://www.ceh.ac.uk/solutions/equipment/automated-monitoring-insects-trap"
+    },
+    "description": "The UKCEH AMI system offers a platform for long-term, autonomous monitoring of moths.  Combining robust lighting for attracting insects with high resolution cameras, the UKCEH AMI system can provide practical and cost-effective solutions for standardised monitoring. UKCEH AMI systems have been deployed in the UK, Canada, USA, Cyprus, Panama, Kenya, Uganda, Singapore, Costa Rica and Argentina, with plans to expand further."
+  },
+  {
+    "deviceTypeID": "diopsis",
+    "deviceType": "DIOPSIS",
+    "derivedFrom": null,
+    "maker": "Faunabit",
+    "hardwareVersion": "DIOPSIS 2.0",
+    "firmware": {
+      "family": null,
+      "version": null,
+      "hardwareID": null
+    },
+    "attractors": [
+      {
+        "channel": null,
+        "attractorType": "UV light",
+        "hardwareVersion": null,
+        "attractorLocation": null,
+        "configuration": null,
+        "powerW": null
+      },
+      {
+        "channel": null,
+        "attractorType": "Visible light (white/coloured LED)",
+        "hardwareVersion": null,
+        "attractorLocation": null,
+        "configuration": null,
+        "powerW": null
+      }
+    ],
+    "targets": [],
+    "sensors": [
+      {
+        "sensorType": "camera",
+        "model": "Raspberry Pi Camera Module 3",
+        "lens": null,
+        "resolution": "> 8 MP",
+        "effectiveResolutionPxPerMm": null,
+        "sensitivityRange": null,
+        "orientation": null,
+        "notes": "Manual focus; minimum focal distance 20–50 cm; under 1 fps."
+      }
+    ],
+    "powerSources": [
+      {
+        "powerSourceType": "grid",
+        "model": null,
+        "capacityWh": null,
+        "nominalVoltageV": null,
+        "voltageAt80PercentV": null,
+        "voltageAt20PercentV": null
+      },
+      {
+        "powerSourceType": "solar",
+        "model": null,
+        "capacityWh": null,
+        "nominalVoltageV": null,
+        "voltageAt80PercentV": null,
+        "voltageAt20PercentV": null
+      },
+      {
+        "powerSourceType": "battery",
+        "model": "rechargeable",
+        "capacityWh": null,
+        "nominalVoltageV": null,
+        "voltageAt80PercentV": null,
+        "voltageAt20PercentV": null
+      }
+    ],
+    "computer": "Raspberry Pi Zero / Zero 2 W",
+    "customFields": {
+      "source": "InsectAI COST Action hardware-db (https://insectai-cost-action.github.io/hardware-db/), 2026-11-23",
+      "sizeTransportMm": "600 x 500 x 400",
+      "sizeDeployedMm": "600 x 500 x 900",
+      "weightKg": 30,
+      "mounting": "Freestanding (no mount required)",
+      "powerAutonomy": "10 months",
+      "captureModes": "Time-lapse; Motion-triggered photo; Scheduled photo; Event-triggered (e.g. AI model detection)",
+      "connectivity": "WiFi; Cellular (4G/LTE-M/NB-IoT); USB (wired); Ethernet; SSH/VNC (remote access); SD card",
+      "ipRating": "ip65",
+      "temperatureMinC": 0,
+      "temperatureMaxC": 40,
+      "subjectSizeMinMm": 3,
+      "construction": "Off-the-shelf: Purchased and used as-is",
+      "documentationURL": "https://faunabit.eu/producten/diopsis",
+      "lastFirmwareUpdate": "April 2026"
+    },
+    "description": "The DIOPSIS is a smart camera that automatically photographs and identifies insects in the wild. Set up in nature, it works day and night to capture which species are present and how often they appear, helping researchers track insect populations and monitor biodiversity over time."
+  },
+  {
+    "deviceTypeID": "entocam",
+    "deviceType": "Entocam",
+    "derivedFrom": null,
+    "maker": null,
+    "hardwareVersion": null,
+    "firmware": {
+      "family": null,
+      "version": null,
+      "hardwareID": null
+    },
+    "attractors": [
+      {
+        "channel": null,
+        "attractorType": "EntoCam Beam (UV and visible LED)",
+        "hardwareVersion": null,
+        "attractorLocation": "external",
+        "configuration": null,
+        "powerW": null
+      }
+    ],
+    "targets": [
+      {
+        "targetType": "screen",
+        "material": null,
+        "color": null,
+        "widthCm": null,
+        "heightCm": null,
+        "distanceCm": 45
+      }
+    ],
+    "sensors": [
+      {
+        "sensorType": "camera",
+        "model": "Sony Starvis",
+        "lens": null,
+        "resolution": "8 MP",
+        "effectiveResolutionPxPerMm": null,
+        "sensitivityRange": null,
+        "orientation": null,
+        "notes": "Fixed focus at 45 cm; 60° field of view; built-in white flash."
+      }
+    ],
+    "powerSources": [
+      {
+        "powerSourceType": "grid",
+        "model": null,
+        "capacityWh": null,
+        "nominalVoltageV": null,
+        "voltageAt80PercentV": null,
+        "voltageAt20PercentV": null
+      },
+      {
+        "powerSourceType": "solar",
+        "model": null,
+        "capacityWh": null,
+        "nominalVoltageV": null,
+        "voltageAt80PercentV": null,
+        "voltageAt20PercentV": null
+      },
+      {
+        "powerSourceType": "battery",
+        "model": "rechargeable",
+        "capacityWh": null,
+        "nominalVoltageV": null,
+        "voltageAt80PercentV": null,
+        "voltageAt20PercentV": null
+      },
+      {
+        "powerSourceType": "battery",
+        "model": "non-rechargeable",
+        "capacityWh": null,
+        "nominalVoltageV": null,
+        "voltageAt80PercentV": null,
+        "voltageAt20PercentV": null
+      }
+    ],
+    "computer": null,
+    "customFields": {
+      "source": "InsectAI COST Action hardware-db (https://insectai-cost-action.github.io/hardware-db/), 2026-11-23",
+      "sizeTransportMm": "200 x 400 x 100",
+      "sizeDeployedMm": "550 x 350 x 500",
+      "weightKg": 1,
+      "mounting": "Tripod; Tree strap / clamp",
+      "powerAutonomy": "30 days",
+      "captureModes": "Time-lapse; Scheduled photo; Manual capture",
+      "connectivity": "USB (wired); SD card",
+      "ipRating": "IP64",
+      "temperatureMinC": -20,
+      "temperatureMaxC": 50,
+      "construction": "Off-the-shelf: Purchased and used as-is",
+      "documentationURL": "https://drive.google.com/file/d/1iNXuJH1KsE21d-vDD2z77KPcQGcR3h_2/view?usp=drive_link",
+      "additionalResources": "www.entocam.com",
+      "lastFirmwareUpdate": "July 2025"
+    },
+    "description": "The Entocam is a camera system entirely dedicated to capturing Moths and Nocturnal insect pictures. It consists of a waterproof, programmable camera that features a 8MP Sony Starvis Sensor, built-in with a white flash and designed to focus on a screen located at 45 cm mounted with carbon rods. It is paired with the EntoCam Beam, a strong and adjustable Moth-Attracting LED."
+  },
+  {
+    "deviceTypeID": "lepisense",
+    "deviceType": "LepiSense",
+    "derivedFrom": null,
+    "maker": "UKCEH",
+    "hardwareVersion": "Non-commercial trial",
+    "firmware": {
+      "family": null,
+      "version": null,
+      "hardwareID": null
+    },
+    "attractors": [
+      {
+        "channel": null,
+        "attractorType": "UV light",
+        "hardwareVersion": null,
+        "attractorLocation": null,
+        "configuration": null,
+        "powerW": null
+      },
+      {
+        "channel": null,
+        "attractorType": "Visible light (white/coloured LED)",
+        "hardwareVersion": null,
+        "attractorLocation": null,
+        "configuration": null,
+        "powerW": null
+      }
+    ],
+    "targets": [],
+    "sensors": [
+      {
+        "sensorType": "camera",
+        "model": "Arducam Mega 5 MP (autofocus)",
+        "lens": null,
+        "resolution": "5 MP",
+        "effectiveResolutionPxPerMm": null,
+        "sensitivityRange": null,
+        "orientation": null,
+        "notes": "Fixed focus distance, 20–50 cm; 68.75° field of view."
+      }
+    ],
+    "powerSources": [
+      {
+        "powerSourceType": "solar",
+        "model": null,
+        "capacityWh": null,
+        "nominalVoltageV": null,
+        "voltageAt80PercentV": null,
+        "voltageAt20PercentV": null
+      }
+    ],
+    "computer": "ATMSAMD21J microcontroller with ARM Cortex-M0+ core (32 KB RAM; 256 KB flash memory; 48 MHz CPU speed)",
+    "customFields": {
+      "source": "InsectAI COST Action hardware-db (https://insectai-cost-action.github.io/hardware-db/), 2026-11-23",
+      "sizeTransportMm": "560 x 390 x 120 mm (pack of 2 units)",
+      "weightKg": 3.9,
+      "mounting": "Pole / stake (ground)",
+      "powerAutonomy": "1.5 years",
+      "captureModes": "Time-lapse",
+      "connectivity": "Cellular (4G/LTE-M/NB-IoT); SD card",
+      "temperatureMinC": -20,
+      "temperatureMaxC": 60,
+      "costUnitBuild": 230,
+      "construction": "Fully custom: Designed and fabricated entirely by the user (e.g custom PCB)",
+      "documentationURL": "https://nerc-ceh.github.io/lepisense-website/",
+      "additionalResources": "https://github.com/NERC-CEH/lepisense-website/discussions/categories/q-a?discussions_q=",
+      "lastFirmwareUpdate": "March 2026"
+    },
+    "description": "LepiSense features colourful lighting to attract insects, a high-resolution camera, and high-capacity data storage for pictures. Solar-powered and easy to set up, it aims to enable scalable, automated long-term monitoring of nocturnal insects."
+  }
+];
+/* Suggested values for the editor (the ontology file's "choices"); any other value is allowed too. */
+const DEVICE_CHOICES = {
+  "attractorTypes": [
+    "Mothbeam (Visible)",
+    "Mothbeam (UV)",
+    "UV LED",
+    "White LED",
+    "UV + white LED",
+    "Blacklight tube",
+    "Mercury vapor",
+    "Pheromone lure",
+    "Bait"
+  ],
+  "attractorLocations": [
+    "internal",
+    "external",
+    "in target"
+  ],
+  "attractorPowerOptions": {
+    "Mothbeam (Visible)": {
+      "hardwareVersion": "5.0.3",
+      "options": [
+        {
+          "configuration": "0 switches",
+          "powerW": 0.2,
+          "measured": "17 mA / 0.20 W at 12 V"
+        },
+        {
+          "configuration": "1 switch",
+          "powerW": 2.0,
+          "measured": "165 mA / 1.98 W at 12 V"
+        },
+        {
+          "configuration": "1 and 2 switches",
+          "powerW": 3.5,
+          "measured": "303 mA / 3.64 W at 12 V"
+        },
+        {
+          "configuration": "1, 2 and 3 switches",
+          "powerW": 5.5,
+          "measured": "463 mA / 5.56 W at 12 V"
+        },
+        {
+          "configuration": "3 and 4 switches",
+          "powerW": 4.5,
+          "measured": "379 mA / 4.55 W at 12 V"
+        },
+        {
+          "configuration": "1, 3 and 4 switches",
+          "powerW": 5.5,
+          "measured": "478 mA / 5.74 W at 12 V"
+        },
+        {
+          "configuration": "All 4 switches",
+          "powerW": 7.0,
+          "measured": "570 mA / 6.84 W at 12 V"
+        }
+      ]
+    },
+    "Mothbeam (UV)": {
+      "hardwareVersion": "5.0.3",
+      "measuredOn": "Mothbeam 5.0.3 (Visible)",
+      "options": [
+        {
+          "configuration": "0 switches",
+          "powerW": 0.2,
+          "measured": "17 mA / 0.20 W at 12 V"
+        },
+        {
+          "configuration": "1 switch",
+          "powerW": 2.0,
+          "measured": "165 mA / 1.98 W at 12 V"
+        },
+        {
+          "configuration": "1 and 2 switches",
+          "powerW": 3.5,
+          "measured": "303 mA / 3.64 W at 12 V"
+        },
+        {
+          "configuration": "1, 2 and 3 switches",
+          "powerW": 5.5,
+          "measured": "463 mA / 5.56 W at 12 V"
+        },
+        {
+          "configuration": "3 and 4 switches",
+          "powerW": 4.5,
+          "measured": "379 mA / 4.55 W at 12 V"
+        },
+        {
+          "configuration": "1, 3 and 4 switches",
+          "powerW": 5.5,
+          "measured": "478 mA / 5.74 W at 12 V"
+        },
+        {
+          "configuration": "All 4 switches",
+          "powerW": 7.0,
+          "measured": "570 mA / 6.84 W at 12 V"
+        }
+      ]
+    }
+  },
+  "targetTypes": [
+    "sheet",
+    "tube",
+    "artificial flower",
+    "screen"
+  ],
+  "targetMaterials": [
+    "felt",
+    "matte plastic",
+    "glossy plastic",
+    "wood",
+    "canvas",
+    "vinyl"
+  ],
+  "targetColors": [
+    "white",
+    "yellow"
+  ],
+  "sensorTypes": [
+    "camera",
+    "infrared",
+    "lidar",
+    "radar",
+    "microphone",
+    "other"
+  ],
+  "powerSourceTypes": [
+    "battery",
+    "grid",
+    "solar"
+  ],
+  "batteries": [
+    {
+      "model": "Standard TalentCell PB120B1",
+      "capacityWh": 142,
+      "nominalVoltageV": 11.1,
+      "voltageAt80PercentV": 12.0,
+      "voltageAt20PercentV": 10.5
+    }
+  ]
+};
+const SENSOR_TYPES = DEVICE_CHOICES.sensorTypes || ["camera"];
+let device = null;   /* the device being edited: a full device-type object */
+
+function clone(v) { return JSON.parse(JSON.stringify(v)); }
+function standardById(id) { return STANDARD_DEVICE_TYPES.find((t) => t.deviceTypeID === id); }
+
+function guessStandardFromHardware() {
+  const hw = (getVal("hardware") || "auto").toLowerCase();
+  return standardById(hw === "diy" ? "mothbox-diy" : "mothbox-pro");
+}
+
+function loadDeviceFromSettings() {
+  const raw = rawVal("device_type").trim();
+  device = null;
+  if (raw) {
+    try { device = JSON.parse(raw); } catch (e) { device = null; }
+  }
+  if (!device || typeof device !== "object" || !device.deviceTypeID) device = clone(guessStandardFromHardware());
+  loadPowerIntoForm();
+  renderDevice();
+}
+
+function isCustom() { return !!device && !standardById(device.deviceTypeID); }
+
+function storeDevice(skipEl) {
+  device.powerSources = powerFromForm();
+  setVal("device_type", JSON.stringify(device));
+  refresh(skipEl);
+}
+
+/* Power sources (ontology: Device → powerSources). The battery's numbers are the firmware's
+ * bat_* settings, which the battery gauge uses whether or not a power source is chosen. */
+const POWER_TYPES = ["battery", "grid", "solar"];
+
+function powerFromForm() {
+  const n = (k) => { const v = numOf(getVal(k)); return isNaN(v) ? null : v; };
+  const out = [];
+  POWER_TYPES.forEach((t) => {
+    if (!$("f-pw-" + t).checked) return;
+    if (t === "battery") {
+      out.push({ powerSourceType: "battery", model: $("f-batmodel").value.trim() || null, capacityWh: n("bat_Wh"),
+        nominalVoltageV: n("bat_voltage"), voltageAt80PercentV: n("bat_80perVolts"), voltageAt20PercentV: n("bat_20perVolts") });
+    } else {
+      out.push({ powerSourceType: t, model: null });
+    }
+  });
+  /* keep any other kinds the device lists */
+  ((device && device.powerSources) || []).forEach((p) => { if (!POWER_TYPES.includes(p.powerSourceType)) out.push(p); });
+  return out;
+}
+
+function loadPowerIntoForm() {
+  const list = (device && device.powerSources) || [];
+  POWER_TYPES.forEach((t) => { $("f-pw-" + t).checked = list.some((p) => p.powerSourceType === t); });
+  const bat = list.find((p) => p.powerSourceType === "battery");
+  $("f-batmodel").value = (bat && bat.model) || "";
+  $("wrap-batmodel").hidden = !$("f-pw-battery").checked;
+}
+
+function powerChanged(skipEl) {
+  $("wrap-batmodel").hidden = !$("f-pw-battery").checked;
+  storeDevice(skipEl);
+  $("devsummary").textContent = summarize(device);
+}
+
+function deviceErrors() {
+  if (!device) return [];
+  const errs = [];
+  if (!String(device.deviceType || "").trim()) errs.push("Give the device type a name.");
+  if (!(device.sensors || []).length) errs.push("A device needs at least one sensor.");
+  return errs;
+}
+
+function summarize(d) {
+  const a = (d.attractors || []).map((x) => [x.attractorType, x.hardwareVersion, x.powerW != null ? x.powerW + " W" : ""].filter(Boolean).join(" ")).filter(Boolean);
+  const t = (d.targets || []).map((x) => [x.targetType, x.color, x.material].filter(Boolean).join(", ")).filter(Boolean);
+  const s = (d.sensors || []).map((x) => [x.sensorType, x.model, x.resolution].filter(Boolean).join(" · "));
+  const p = (d.powerSources || []).map((x) => [x.powerSourceType, x.model, x.capacityWh != null ? x.capacityWh + " Wh" : ""].filter(Boolean).join(" "));
+  return [
+    "Attractors: " + (a.length ? a.join("; ") : (d.attractors || []).length ? (d.attractors.length + " (details not filled in)") : "none"),
+    "Targets: " + (t.length ? t.join("; ") : (d.targets || []).length ? (d.targets.length + " (details not filled in)") : "none"),
+    "Sensors: " + (s.length ? s.join("; ") : "none"),
+    ...(p.length ? ["Power: " + p.join("; ")] : []),
+  ].join(" — ");
+}
+
+function renderDevice() {
+  const sel = $("f-devtype");
+  sel.innerHTML = "";
+  /* Only Mothbox types here (the shared list also has AMI, DIOPSIS, Entocam…); keep the current one if it isn't. */
+  STANDARD_DEVICE_TYPES.filter((t) => (t.firmware && t.firmware.hardwareID) || t.deviceTypeID === device.deviceTypeID).forEach((t) => {
+    const o = document.createElement("option");
+    o.value = t.deviceTypeID; o.textContent = t.deviceType;
+    sel.appendChild(o);
+  });
+  if (isCustom()) {
+    const o = document.createElement("option");
+    o.value = device.deviceTypeID; o.textContent = (device.deviceType || "Custom device") + " (custom)";
+    sel.appendChild(o);
+  }
+  sel.value = device.deviceTypeID;
+  $("devsummary").textContent = summarize(device);
+  $("devcustom").hidden = !isCustom();
+  $("btn-devcustomize").textContent = isCustom() ? "Start over from the selected standard device" : "Customize this device";
+  if (!isCustom()) return;
+
+  $("f-devname").value = device.deviceType || "";
+  $("f-devhw").value = device.hardwareVersion || "";
+  $("f-devdesc").value = device.description || "";
+
+  renderList("dev-attractors", device.attractors || [], [
+    { kind: "text", key: "attractorType", placeholder: "Type, e.g. Mothbeam (UV)", list: "dl-attractor-types", rerender: true,
+      after: (item) => { const pw = powerOptionsFor(item.attractorType); if (pw && !item.hardwareVersion) item.hardwareVersion = pw.hardwareVersion || null; } },
+    { kind: "text", key: "hardwareVersion", placeholder: "Hardware version (optional)" },
+    { kind: "text", key: "attractorLocation", placeholder: "Location", list: "dl-attractor-locations" },
+    { kind: "power" },
+    { kind: "number", key: "powerW", placeholder: "Power", unit: "W" },
+  ], 0);
+  renderList("dev-targets", device.targets || [], [
+    { kind: "text", key: "targetType", placeholder: "Type, e.g. sheet", list: "dl-target-types" },
+    { kind: "text", key: "material", placeholder: "Material", list: "dl-target-materials" },
+    { kind: "text", key: "color", placeholder: "Color (optional)", list: "dl-target-colors" },
+    { kind: "number", key: "widthCm", placeholder: "Width", unit: "cm" },
+    { kind: "number", key: "heightCm", placeholder: "Height", unit: "cm" },
+    { kind: "number", key: "distanceCm", placeholder: "Distance", unit: "cm" },
+  ], 0);
+  renderList("dev-sensors", device.sensors || [], [
+    { kind: "select", key: "sensorType", options: SENSOR_TYPES },
+    { kind: "text", key: "model", placeholder: "Model" },
+    { kind: "text", key: "resolution", placeholder: "Resolution, e.g. 64 MP" },
+    { kind: "text", key: "notes", placeholder: "Notes" },
+  ], 1);
+}
+
+/* The power choices for an attractor type (e.g. Mothbeam light configurations), or undefined. */
+function powerOptionsFor(type) {
+  const wanted = String(type || "").trim().toLowerCase();
+  const all = DEVICE_CHOICES.attractorPowerOptions || {};
+  const key = Object.keys(all).find((k) => k.toLowerCase() === wanted);
+  return key ? all[key] : undefined;
+}
+
+function fillDatalists() {
+  const fill = (id, values) => {
+    const dl = $(id); dl.innerHTML = "";
+    (values || []).forEach((v) => { const o = document.createElement("option"); o.value = v; dl.appendChild(o); });
+  };
+  fill("dl-attractor-types", DEVICE_CHOICES.attractorTypes);
+  fill("dl-attractor-locations", DEVICE_CHOICES.attractorLocations);
+  fill("dl-target-types", DEVICE_CHOICES.targetTypes);
+  fill("dl-target-materials", DEVICE_CHOICES.targetMaterials);
+  fill("dl-target-colors", DEVICE_CHOICES.targetColors);
+  fill("dl-batteries", (DEVICE_CHOICES.batteries || []).map((b) => b.model));
+}
+
+function renderList(containerId, items, fields, minItems) {
+  const box = $(containerId);
+  box.innerHTML = "";
+  const changed = () => { storeDevice(); $("devsummary").textContent = summarize(device); };
+  items.forEach((item, idx) => {
+    const row = document.createElement("div");
+    row.className = "devrow";
+    fields.forEach((f) => {
+      if (f.when && !f.when(item)) return;
+      let el;
+      if (f.kind === "power") {
+        /* Switch settings with known power, e.g. Mothbeam "1 and 2 switches" = 3.5 W. */
+        const pw = powerOptionsFor(item.attractorType);
+        if (!pw) return;
+        el = document.createElement("select");
+        el.setAttribute("aria-label", "Switches on");
+        /* Hidden blank: nothing chosen yet shows an empty box, not a fake first choice. */
+        const blank = document.createElement("option"); blank.value = ""; blank.disabled = true; blank.hidden = true; el.appendChild(blank);
+        pw.options.forEach((o) => {
+          const opt = document.createElement("option");
+          opt.value = o.configuration; opt.textContent = o.configuration; opt.title = o.measured || "";
+          el.appendChild(opt);
+        });
+        if (item.configuration && !pw.options.some((o) => o.configuration === item.configuration)) {
+          const opt = document.createElement("option"); opt.value = opt.textContent = item.configuration; el.appendChild(opt);
+        }
+        el.value = item.configuration || "";
+        el.addEventListener("change", () => {
+          const o = pw.options.find((x) => x.configuration === el.value);
+          item.configuration = o ? o.configuration : null;
+          if (o) item.powerW = o.powerW;
+          changed(); renderDevice();
+        });
+      } else if (f.kind === "select") {
+        el = document.createElement("select");
+        const current = item[f.key] || f.options[0];
+        [...new Set([...f.options, current])].forEach((v) => {
+          const o = document.createElement("option"); o.value = v; o.textContent = v; el.appendChild(o);
+        });
+        el.value = current;
+        el.addEventListener("change", () => { item[f.key] = el.value; if (f.after) f.after(item); changed(); if (f.rerender) renderDevice(); });
+      } else {
+        el = document.createElement("input");
+        el.type = f.kind; el.placeholder = f.placeholder || "";
+        if (f.list) el.setAttribute("list", f.list);
+        if (f.kind === "number") { el.min = "0"; el.step = "any"; }
+        el.value = item[f.key] == null ? "" : item[f.key];
+        el.addEventListener("input", () => {
+          item[f.key] = f.kind === "number" ? (el.value === "" ? null : Number(el.value)) : (el.value || null);
+          changed();
+        });
+        /* After typing (or picking a suggestion), fill in what follows from it and redraw. */
+        if (f.after || f.rerender) el.addEventListener("change", () => { if (f.after) f.after(item); changed(); if (f.rerender) renderDevice(); });
+      }
+      row.appendChild(el);
+      if (f.unit) { const u = document.createElement("span"); u.className = "unit"; u.textContent = f.unit; row.appendChild(u); }
+    });
+    const rm = document.createElement("button");
+    rm.type = "button"; rm.className = "rm"; rm.textContent = "Remove";
+    rm.disabled = items.length <= minItems;
+    rm.addEventListener("click", () => { items.splice(idx, 1); storeDevice(); renderDevice(); });
+    row.appendChild(rm);
+    box.appendChild(row);
+  });
+}
+
+function customIdFor(name) {
+  return "custom-" + (String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "device");
+}
+
+$("f-devtype").addEventListener("change", () => {
+  const std = standardById($("f-devtype").value);
+  if (std) { device = clone(std); storeDevice(); renderDevice(); }
+});
+$("btn-devcustomize").addEventListener("click", () => {
+  const base = isCustom() ? (standardById(device.derivedFrom) || guessStandardFromHardware()) : device;
+  if (isCustom() && !confirm("Throw away this custom device and start again from " + base.deviceType + "?")) return;
+  device = clone(base);
+  if (!isCustom()) {
+    device.derivedFrom = base.deviceTypeID;
+    device.deviceType = base.deviceType.replace(/^Standard /, "") + " (custom)";
+    device.deviceTypeID = customIdFor(device.deviceType);
+  }
+  storeDevice();
+  renderDevice();
+});
+$("f-devname").addEventListener("input", () => {
+  device.deviceType = $("f-devname").value;
+  device.deviceTypeID = customIdFor(device.deviceType);
+  storeDevice();
+});
+$("f-devhw").addEventListener("input", () => { device.hardwareVersion = $("f-devhw").value || null; storeDevice(); });
+$("dev-add-attractor").addEventListener("click", () => {
+  (device.attractors = device.attractors || []).push({ attractorType: null, hardwareVersion: null, attractorLocation: null, configuration: null, powerW: null });
+  storeDevice(); renderDevice();
+});
+$("dev-add-target").addEventListener("click", () => {
+  (device.targets = device.targets || []).push({ targetType: null, material: null, color: null, widthCm: null, heightCm: null, distanceCm: null });
+  storeDevice(); renderDevice();
+});
+$("dev-add-sensor").addEventListener("click", () => {
+  (device.sensors = device.sensors || []).push({ sensorType: "camera", model: null, resolution: null, notes: null });
+  storeDevice(); renderDevice();
+});
+$("f-devdesc").addEventListener("input", () => { device.description = $("f-devdesc").value || null; storeDevice(); });
+POWER_TYPES.forEach((t) => $("f-pw-" + t).addEventListener("change", () => powerChanged()));
+$("f-batmodel").addEventListener("input", () => powerChanged($("f-batmodel")));
+$("f-batmodel").addEventListener("change", () => {
+  /* A known battery fills in its capacity and voltages. */
+  const known = (DEVICE_CHOICES.batteries || []).find((b) => b.model.toLowerCase() === $("f-batmodel").value.trim().toLowerCase());
+  if (known) {
+    [["bat_Wh", "capacityWh"], ["bat_voltage", "nominalVoltageV"], ["bat_80perVolts", "voltageAt80PercentV"], ["bat_20perVolts", "voltageAt20PercentV"]]
+      .forEach(([key, field]) => {
+        if (known[field] == null) return;
+        const v = key === "bat_Wh" ? String(known[field]) : Number(known[field]).toFixed(1);
+        setVal(key, v); $("f-" + key).value = v;
+      });
+  }
+  powerChanged();
+});
+/* The battery numbers are also the battery power source's (after the generic handler saves them). */
+["bat_voltage", "bat_Wh", "bat_80perVolts", "bat_20perVolts"].forEach((k) =>
+  $("f-" + k).addEventListener("input", () => {
+    if (!device || !$("f-pw-battery").checked) return;
+    setVal(k, $("f-" + k).value);  /* this listener can run before the generic one */
+    powerChanged($("f-" + k));
+  }));
+fillDatalists();
 
 /* ------------------------------------------------------------------ *
  * Wiring
