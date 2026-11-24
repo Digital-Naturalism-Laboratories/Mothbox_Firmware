@@ -352,23 +352,46 @@
       <datalist id="dl-target-types"></datalist>
       <datalist id="dl-target-materials"></datalist>
       <datalist id="dl-target-colors"></datalist>
-      <datalist id="dl-batteries"></datalist>
       <div class="field">
         <button type="button" id="btn-devcustomize">Customize this device</button>
       </div>
 
-      <div class="devsub"><h3>Power source</h3><span class="hint">optional: one or more</span></div>
-      <div class="field powerchecks">
-        <label><input type="checkbox" id="f-pw-battery"> Battery</label>
-        <label><input type="checkbox" id="f-pw-grid"> Grid</label>
-        <label><input type="checkbox" id="f-pw-solar"> Solar</label>
+      <div class="devsub"><h3>Power source</h3><span class="hint">optional: choose one</span></div>
+      <div class="field powerchecks" role="radiogroup" aria-label="Power source">
+        <label><input type="radio" name="pw-type" value="" id="f-pw-none"> Not specified</label>
+        <label><input type="radio" name="pw-type" value="battery" id="f-pw-battery"> Battery</label>
+        <label><input type="radio" name="pw-type" value="grid" id="f-pw-grid"> Grid</label>
+        <label><input type="radio" name="pw-type" value="solar" id="f-pw-solar"> Solar</label>
       </div>
-      <div class="field" id="wrap-batmodel" hidden>
-        <label class="lbl" for="f-batmodel">Battery model</label>
-        <input type="text" id="f-batmodel" list="dl-batteries" placeholder="e.g. Standard TalentCell PB120B1" autocomplete="off" spellcheck="false">
-        <p class="hint">Choosing a known battery fills in the numbers below.</p>
+      <div id="pw-details" hidden>
+        <div class="field">
+          <label class="lbl" for="f-pw-setup">Setup</label>
+          <select id="f-pw-setup"></select>
+          <p class="hint">Pick a standard setup. Changing any of its details, or its name, makes it your own setup.</p>
+        </div>
+        <div class="field">
+          <label class="lbl" for="f-pw-name">Setup name</label>
+          <input type="text" id="f-pw-name" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="field">
+          <label class="lbl" for="f-pw-model">Model</label>
+          <input type="text" id="f-pw-model" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="field" id="wrap-pw-supply" hidden>
+          <label class="lbl" for="f-pw-supply">Supply voltage (V)</label>
+          <input type="number" id="f-pw-supply" step="0.1" min="0">
+        </div>
+        <div class="field" id="wrap-pw-panel" hidden>
+          <label class="lbl" for="f-pw-panel">Panel power (W)</label>
+          <input type="number" id="f-pw-panel" step="1" min="0">
+        </div>
+        <div class="field">
+          <label class="lbl" for="f-pw-notes">Notes</label>
+          <input type="text" id="f-pw-notes" autocomplete="off">
+        </div>
       </div>
-      <p class="hint">The battery numbers drive the battery gauge and the low-power shutdown, so they are used even if no power source is chosen (the defaults are a Standard TalentCell PB120B1). Read them off the battery itself.</p>
+      <div id="wrap-battery-numbers">
+      <p class="hint">The display uses these to turn the measured voltage into a battery percentage, whenever the power source is a battery or not specified (the defaults are a Standard TalentCell PB120B1). Read them off the battery itself.</p>
       <div class="twocol">
       <div>
         <div class="field" id="wrap-bat_voltage">
@@ -396,6 +419,7 @@
           <input type="number" id="f-bat_20perVolts" data-key="bat_20perVolts" step="0.1" min="0">
           <div class="fielderr" id="e-bat_20perVolts"></div>
         </div>
+      </div>
       </div>
       </div>
     </section>
@@ -529,6 +553,63 @@
         <p class="hint">Stored as plain text in the CSV, exactly as it always has been. Leave the examples alone if you are not adding a network.</p>
         <div class="fielderr" id="e-wifipass"></div>
       </div>
+    </section>
+
+    <section>
+      <h2>Cloud upload</h2>
+      <p class="sechint"><strong>Not used yet.</strong> A future firmware will be able to upload your data to the cloud automatically; fill these in now if you like, and leave the rest blank. Everything here is stored as plain text in the settings file on the SD card, so anyone with the card can read it.</p>
+      <div class="twocol">
+      <div>
+        <div class="field">
+          <label class="lbl" for="f-cloud_service">Cloud service</label>
+          <input type="text" id="f-cloud_service" data-key="cloud_service" list="dl-cloud-services" autocomplete="off" spellcheck="false" placeholder="e.g. Antenna, Amazon S3">
+        </div>
+        <div class="field">
+          <label class="lbl" for="f-cloud_url">Server / endpoint URL</label>
+          <input type="text" id="f-cloud_url" data-key="cloud_url" autocomplete="off" spellcheck="false" placeholder="https://&hellip;">
+        </div>
+        <div class="field">
+          <label class="lbl" for="f-cloud_bucket">Bucket, folder or project</label>
+          <input type="text" id="f-cloud_bucket" data-key="cloud_bucket" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="field">
+          <label class="lbl" for="f-cloud_region">Region</label>
+          <input type="text" id="f-cloud_region" data-key="cloud_region" autocomplete="off" spellcheck="false" placeholder="e.g. eu-west-1 (S3)">
+        </div>
+      </div>
+      <div>
+        <div class="field">
+          <label class="lbl" for="f-cloud_user">User name or email</label>
+          <input type="text" id="f-cloud_user" data-key="cloud_user" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="field">
+          <label class="lbl" for="f-cloud_password">Password</label>
+          <input type="text" id="f-cloud_password" data-key="cloud_password" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="field">
+          <label class="lbl" for="f-cloud_api_key">API key / access key ID</label>
+          <input type="text" id="f-cloud_api_key" data-key="cloud_api_key" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="field">
+          <label class="lbl" for="f-cloud_api_secret">API secret / secret access key</label>
+          <input type="text" id="f-cloud_api_secret" data-key="cloud_api_secret" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="field">
+          <label class="lbl" for="f-cloud_token">Access token</label>
+          <input type="text" id="f-cloud_token" data-key="cloud_token" autocomplete="off" spellcheck="false">
+          <p class="hint">Services differ: S3 uses an access key ID and secret, Antenna and many others a token or API key, SFTP and WebDAV a user name and password.</p>
+        </div>
+      </div>
+      </div>
+      <datalist id="dl-cloud-services">
+        <option value="Antenna"></option>
+        <option value="Amazon S3 (or S3-compatible)"></option>
+        <option value="Google Drive"></option>
+        <option value="Dropbox"></option>
+        <option value="SFTP"></option>
+        <option value="WebDAV"></option>
+        <option value="Other"></option>
+      </datalist>
     </section>
 
 
@@ -737,6 +818,15 @@ const DEFAULTS = [
   ["bat_20perVolts", "10.5", " this is the voltage of the battery when it is about 20 percent full"],
   ["wifissid", "examplessid", " write an SSID of a wifi you want to add to the pi "],
   ["wifipass", "examplepass", " write the wifi password (not currently implemented)"],
+  ["cloud_service", "", " cloud upload (placeholder, not used yet): which cloud service to upload to. Stored as plain text"],
+  ["cloud_url", "", " cloud upload (placeholder, not used yet): server or endpoint URL. Stored as plain text"],
+  ["cloud_bucket", "", " cloud upload (placeholder, not used yet): bucket, folder or project to upload into. Stored as plain text"],
+  ["cloud_region", "", " cloud upload (placeholder, not used yet): the service's region, if it has them. Stored as plain text"],
+  ["cloud_user", "", " cloud upload (placeholder, not used yet): user name or email. Stored as plain text"],
+  ["cloud_password", "", " cloud upload (placeholder, not used yet): password. Stored as plain text"],
+  ["cloud_api_key", "", " cloud upload (placeholder, not used yet): API key or access key ID. Stored as plain text"],
+  ["cloud_api_secret", "", " cloud upload (placeholder, not used yet): API secret or secret access key. Stored as plain text"],
+  ["cloud_token", "", " cloud upload (placeholder, not used yet): access token. Stored as plain text"],
   ["photo_interval", "2", " time in minutes between each photo. Default is 2 minutes"],
   ["backup_interval", "5", " time in minutes between backups of new photos to the USB drive. Default is 5 (valid 1-999). A final backup always runs at the end of every capture window regardless"],
   ["hardware", "auto", " auto detects a Mothbox Pro PCB or a DIY relay build at boot. Set to pro or diy to force it if detection ever guesses wrong"],
@@ -749,7 +839,9 @@ const DEFAULTS = [
 const HANDLED = new Set(["autoname", "name", "timezone", "autoSystemTime", "manualTime",
   "runtime", "weekday", "hour", "minute", "bat_voltage", "bat_Wh",
   "bat_80perVolts", "bat_20perVolts", "wifissid", "wifipass", "photo_interval",
-  "backup_interval", "hardware", "rtc_battery", "second", "device_type"]);   /* 'second' is not used by the Mothbox -- kept in the file, not shown */
+  "backup_interval", "hardware", "rtc_battery", "second", "device_type",
+  "cloud_service", "cloud_url", "cloud_bucket", "cloud_region", "cloud_user", "cloud_password", "cloud_api_key", "cloud_api_secret", "cloud_token"
+]);   /* 'second' is not used by the Mothbox -- kept in the file, not shown */
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -986,7 +1078,7 @@ function buildStaticControls() {
   /* plain text / number fields */
   ["name", "timezone", "manualTime", "runtime", "photo_interval", "backup_interval", "hardware",
    "rtc_battery", "bat_voltage", "bat_Wh", "bat_80perVolts", "bat_20perVolts",
-   "wifissid", "wifipass"].forEach((key) => {
+   "wifissid", "wifipass", "cloud_service", "cloud_url", "cloud_bucket", "cloud_region", "cloud_user", "cloud_password", "cloud_api_key", "cloud_api_secret", "cloud_token"].forEach((key) => {
     const el = $("f-" + key);
     if (!el) return;
     el.addEventListener("input", () => { setVal(key, el.value); refresh(el); });
@@ -1102,7 +1194,7 @@ function doRefresh(skipEl) {
   setInput("f-backup_interval", getVal("backup_interval"), skipEl);
   setInput("f-hardware", (getVal("hardware") || "auto").toLowerCase(), skipEl);
   setInput("f-rtc_battery", (getVal("rtc_battery") || "").trim().toLowerCase(), skipEl);
-  ["bat_voltage", "bat_Wh", "bat_80perVolts", "bat_20perVolts", "wifissid", "wifipass"]
+  ["bat_voltage", "bat_Wh", "bat_80perVolts", "bat_20perVolts", "wifissid", "wifipass", "cloud_service", "cloud_url", "cloud_bucket", "cloud_region", "cloud_user", "cloud_password", "cloud_api_key", "cloud_api_secret", "cloud_token"]
     .forEach((k) => setInput("f-" + k, getVal(k), skipEl));
 
   /* --- name --- */
@@ -1488,7 +1580,7 @@ const STANDARD_DEVICE_TYPES = [
     "hardwareVersion": "5.0.6",
     "firmware": {
       "family": "Mothbox Unified 6.x",
-      "version": "6.1.2",
+      "version": "6.1.3",
       "hardwareID": "pro"
     },
     "attractors": [
@@ -1531,7 +1623,7 @@ const STANDARD_DEVICE_TYPES = [
         "notes": null
       }
     ],
-    "powerSources": [],
+    "powerSource": null,
     "computer": "Raspberry Pi 5",
     "customFields": {},
     "description": null
@@ -1587,8 +1679,8 @@ const STANDARD_DEVICE_TYPES = [
         "notes": null
       }
     ],
+    "powerSource": null,
     "computer": "Raspberry Pi 5",
-    "powerSources": [],
     "customFields": {},
     "description": null
   },
@@ -1626,24 +1718,7 @@ const STANDARD_DEVICE_TYPES = [
         "notes": null
       }
     ],
-    "powerSources": [
-      {
-        "powerSourceType": "solar",
-        "model": null,
-        "capacityWh": null,
-        "nominalVoltageV": null,
-        "voltageAt80PercentV": null,
-        "voltageAt20PercentV": null
-      },
-      {
-        "powerSourceType": "battery",
-        "model": "rechargeable",
-        "capacityWh": null,
-        "nominalVoltageV": null,
-        "voltageAt80PercentV": null,
-        "voltageAt20PercentV": null
-      }
-    ],
+    "powerSource": null,
     "computer": "Raspberry Pi 4",
     "customFields": {
       "source": "InsectAI COST Action hardware-db (https://insectai-cost-action.github.io/hardware-db/), 2026-11-23",
@@ -1655,7 +1730,11 @@ const STANDARD_DEVICE_TYPES = [
       "connectivity": "USB (wired); SD card",
       "costUnitBuild": 900,
       "construction": "Fully custom: Designed and fabricated entirely by the user (e.g custom PCB)",
-      "documentationURL": "https://www.ceh.ac.uk/solutions/equipment/automated-monitoring-insects-trap"
+      "documentationURL": "https://www.ceh.ac.uk/solutions/equipment/automated-monitoring-insects-trap",
+      "powerOptions": [
+        "solar",
+        "battery (rechargeable)"
+      ]
     },
     "description": "The UKCEH AMI system offers a platform for long-term, autonomous monitoring of moths.  Combining robust lighting for attracting insects with high resolution cameras, the UKCEH AMI system can provide practical and cost-effective solutions for standardised monitoring. UKCEH AMI systems have been deployed in the UK, Canada, USA, Cyprus, Panama, Kenya, Uganda, Singapore, Costa Rica and Argentina, with plans to expand further."
   },
@@ -1701,32 +1780,7 @@ const STANDARD_DEVICE_TYPES = [
         "notes": "Manual focus; minimum focal distance 20–50 cm; under 1 fps."
       }
     ],
-    "powerSources": [
-      {
-        "powerSourceType": "grid",
-        "model": null,
-        "capacityWh": null,
-        "nominalVoltageV": null,
-        "voltageAt80PercentV": null,
-        "voltageAt20PercentV": null
-      },
-      {
-        "powerSourceType": "solar",
-        "model": null,
-        "capacityWh": null,
-        "nominalVoltageV": null,
-        "voltageAt80PercentV": null,
-        "voltageAt20PercentV": null
-      },
-      {
-        "powerSourceType": "battery",
-        "model": "rechargeable",
-        "capacityWh": null,
-        "nominalVoltageV": null,
-        "voltageAt80PercentV": null,
-        "voltageAt20PercentV": null
-      }
-    ],
+    "powerSource": null,
     "computer": "Raspberry Pi Zero / Zero 2 W",
     "customFields": {
       "source": "InsectAI COST Action hardware-db (https://insectai-cost-action.github.io/hardware-db/), 2026-11-23",
@@ -1743,7 +1797,12 @@ const STANDARD_DEVICE_TYPES = [
       "subjectSizeMinMm": 3,
       "construction": "Off-the-shelf: Purchased and used as-is",
       "documentationURL": "https://faunabit.eu/producten/diopsis",
-      "lastFirmwareUpdate": "April 2026"
+      "lastFirmwareUpdate": "April 2026",
+      "powerOptions": [
+        "grid",
+        "solar",
+        "battery (rechargeable)"
+      ]
     },
     "description": "The DIOPSIS is a smart camera that automatically photographs and identifies insects in the wild. Set up in nature, it works day and night to capture which species are present and how often they appear, helping researchers track insect populations and monitor biodiversity over time."
   },
@@ -1790,40 +1849,7 @@ const STANDARD_DEVICE_TYPES = [
         "notes": "Fixed focus at 45 cm; 60° field of view; built-in white flash."
       }
     ],
-    "powerSources": [
-      {
-        "powerSourceType": "grid",
-        "model": null,
-        "capacityWh": null,
-        "nominalVoltageV": null,
-        "voltageAt80PercentV": null,
-        "voltageAt20PercentV": null
-      },
-      {
-        "powerSourceType": "solar",
-        "model": null,
-        "capacityWh": null,
-        "nominalVoltageV": null,
-        "voltageAt80PercentV": null,
-        "voltageAt20PercentV": null
-      },
-      {
-        "powerSourceType": "battery",
-        "model": "rechargeable",
-        "capacityWh": null,
-        "nominalVoltageV": null,
-        "voltageAt80PercentV": null,
-        "voltageAt20PercentV": null
-      },
-      {
-        "powerSourceType": "battery",
-        "model": "non-rechargeable",
-        "capacityWh": null,
-        "nominalVoltageV": null,
-        "voltageAt80PercentV": null,
-        "voltageAt20PercentV": null
-      }
-    ],
+    "powerSource": null,
     "computer": null,
     "customFields": {
       "source": "InsectAI COST Action hardware-db (https://insectai-cost-action.github.io/hardware-db/), 2026-11-23",
@@ -1840,7 +1866,13 @@ const STANDARD_DEVICE_TYPES = [
       "construction": "Off-the-shelf: Purchased and used as-is",
       "documentationURL": "https://drive.google.com/file/d/1iNXuJH1KsE21d-vDD2z77KPcQGcR3h_2/view?usp=drive_link",
       "additionalResources": "www.entocam.com",
-      "lastFirmwareUpdate": "July 2025"
+      "lastFirmwareUpdate": "July 2025",
+      "powerOptions": [
+        "grid",
+        "solar",
+        "battery (rechargeable)",
+        "battery (non-rechargeable)"
+      ]
     },
     "description": "The Entocam is a camera system entirely dedicated to capturing Moths and Nocturnal insect pictures. It consists of a waterproof, programmable camera that features a 8MP Sony Starvis Sensor, built-in with a white flash and designed to focus on a screen located at 45 cm mounted with carbon rods. It is paired with the EntoCam Beam, a strong and adjustable Moth-Attracting LED."
   },
@@ -1886,16 +1918,7 @@ const STANDARD_DEVICE_TYPES = [
         "notes": "Fixed focus distance, 20–50 cm; 68.75° field of view."
       }
     ],
-    "powerSources": [
-      {
-        "powerSourceType": "solar",
-        "model": null,
-        "capacityWh": null,
-        "nominalVoltageV": null,
-        "voltageAt80PercentV": null,
-        "voltageAt20PercentV": null
-      }
-    ],
+    "powerSource": null,
     "computer": "ATMSAMD21J microcontroller with ARM Cortex-M0+ core (32 KB RAM; 256 KB flash memory; 48 MHz CPU speed)",
     "customFields": {
       "source": "InsectAI COST Action hardware-db (https://insectai-cost-action.github.io/hardware-db/), 2026-11-23",
@@ -1911,7 +1934,10 @@ const STANDARD_DEVICE_TYPES = [
       "construction": "Fully custom: Designed and fabricated entirely by the user (e.g custom PCB)",
       "documentationURL": "https://nerc-ceh.github.io/lepisense-website/",
       "additionalResources": "https://github.com/NERC-CEH/lepisense-website/discussions/categories/q-a?discussions_q=",
-      "lastFirmwareUpdate": "March 2026"
+      "lastFirmwareUpdate": "March 2026",
+      "powerOptions": [
+        "solar"
+      ]
     },
     "description": "LepiSense features colourful lighting to attract insects, a high-resolution camera, and high-capacity data storage for pictures. Solar-powered and easy to set up, it aims to enable scalable, automated long-term monitoring of nocturnal insects."
   }
@@ -2048,13 +2074,36 @@ const DEVICE_CHOICES = {
     "grid",
     "solar"
   ],
-  "batteries": [
+  "powerSources": [
     {
-      "model": "Standard TalentCell PB120B1",
+      "powerSourceID": "talentcell-pb120b1",
+      "name": "Standard TalentCell PB120B1",
+      "derivedFrom": null,
+      "powerSourceType": "battery",
+      "model": "TalentCell PB120B1",
       "capacityWh": 142,
       "nominalVoltageV": 11.1,
       "voltageAt80PercentV": 12.0,
-      "voltageAt20PercentV": 10.5
+      "voltageAt20PercentV": 10.5,
+      "notes": null
+    },
+    {
+      "powerSourceID": "grid-12v-adapter",
+      "name": "Mains adapter, 12 V",
+      "derivedFrom": null,
+      "powerSourceType": "grid",
+      "model": null,
+      "supplyVoltageV": 12,
+      "notes": null
+    },
+    {
+      "powerSourceID": "solar-panel",
+      "name": "Solar panel",
+      "derivedFrom": null,
+      "powerSourceType": "solar",
+      "model": null,
+      "panelPowerW": null,
+      "notes": null
     }
   ]
 };
@@ -2083,42 +2132,109 @@ function loadDeviceFromSettings() {
 function isCustom() { return !!device && !standardById(device.deviceTypeID); }
 
 function storeDevice(skipEl) {
-  device.powerSources = powerFromForm();
+  delete device.powerSources;   /* older files had a list */
+  device.powerSource = powerForDevice();
   setVal("device_type", JSON.stringify(device));
   refresh(skipEl);
 }
 
-/* Power sources (ontology: Device → powerSources). The battery's numbers are the firmware's
- * bat_* settings, which the battery gauge uses whether or not a power source is chosen. */
+/* Power source (ontology: Device → powerSource): one setup, battery, grid or solar,
+ * from the standard setups in DEVICE_CHOICES.powerSources or customized from one. A battery's
+ * numbers are the firmware's bat_* settings, which the display's battery gauge uses whether or
+ * not a power source is chosen. */
 const POWER_TYPES = ["battery", "grid", "solar"];
+const BATTERY_ROWS = [["bat_Wh", "capacityWh"], ["bat_voltage", "nominalVoltageV"],
+                      ["bat_80perVolts", "voltageAt80PercentV"], ["bat_20perVolts", "voltageAt20PercentV"]];
+let power = null;   /* the power source being edited, or null (not specified) */
 
-function powerFromForm() {
-  const n = (k) => { const v = numOf(getVal(k)); return isNaN(v) ? null : v; };
-  const out = [];
-  POWER_TYPES.forEach((t) => {
-    if (!$("f-pw-" + t).checked) return;
-    if (t === "battery") {
-      out.push({ powerSourceType: "battery", model: $("f-batmodel").value.trim() || null, capacityWh: n("bat_Wh"),
-        nominalVoltageV: n("bat_voltage"), voltageAt80PercentV: n("bat_80perVolts"), voltageAt20PercentV: n("bat_20perVolts") });
-    } else {
-      out.push({ powerSourceType: t, model: null });
-    }
-  });
-  /* keep any other kinds the device lists */
-  ((device && device.powerSources) || []).forEach((p) => { if (!POWER_TYPES.includes(p.powerSourceType)) out.push(p); });
+function standardPower() { return DEVICE_CHOICES.powerSources || []; }
+function standardPowerById(id) { return standardPower().find((s) => s.powerSourceID === id); }
+function batteryRowNumber(key) { const v = numOf(getVal(key)); return isNaN(v) ? null : v; }
+
+function powerForDevice() {
+  if (!power) return null;
+  const out = Object.assign({}, power);
+  if (out.powerSourceType === "battery") BATTERY_ROWS.forEach(([key, field]) => { out[field] = batteryRowNumber(key); });
   return out;
 }
 
+/* Editing a standard setup's details makes it a custom one that names where it came from. */
+function powerIdFor(name, type) {
+  return "custom-power-" + (String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || type);
+}
+
+function customizePower(newName) {
+  const std = power && standardPowerById(power.powerSourceID);
+  if (std) {
+    const name = newName || String(std.name || power.powerSourceType).replace(/^Standard /, "") + " (custom)";
+    power = Object.assign({}, power, { powerSourceID: powerIdFor(name, power.powerSourceType), name: name, derivedFrom: std.powerSourceID });
+  } else if (power && newName) {
+    power = Object.assign({}, power, { powerSourceID: powerIdFor(newName, power.powerSourceType), name: newName });
+  }
+}
+
+function applyBatteryNumbers(setup) {
+  BATTERY_ROWS.forEach(([key, field]) => {
+    if (setup[field] == null) return;
+    const v = key === "bat_Wh" ? String(setup[field]) : Number(setup[field]).toFixed(1);
+    setVal(key, v); $("f-" + key).value = v;
+  });
+}
+
+function batteryMatches(setup) {
+  return BATTERY_ROWS.every(([key, field]) => setup[field] == null || batteryRowNumber(key) === Number(setup[field]));
+}
+
+/* Choosing a type: its first standard setup -- for a battery, the standard one whose numbers
+ * match the battery settings, else a custom one keeping those numbers. */
+function choosePowerType(t) {
+  if (!t) { power = null; return; }
+  if (power && power.powerSourceType === t) return;
+  const options = standardPower().filter((s) => s.powerSourceType === t);
+  if (t === "battery") {
+    const match = options.find(batteryMatches);
+    power = clone(match || options[0] || { powerSourceID: "custom-battery", name: "Battery", powerSourceType: "battery" });
+    if (!match && options[0]) customizePower();
+  } else {
+    power = clone(options[0] || { powerSourceID: "custom-" + t, name: t, powerSourceType: t });
+  }
+}
+
 function loadPowerIntoForm() {
-  const list = (device && device.powerSources) || [];
-  POWER_TYPES.forEach((t) => { $("f-pw-" + t).checked = list.some((p) => p.powerSourceType === t); });
-  const bat = list.find((p) => p.powerSourceType === "battery");
-  $("f-batmodel").value = (bat && bat.model) || "";
-  $("wrap-batmodel").hidden = !$("f-pw-battery").checked;
+  const p = device && (device.powerSource || ((device.powerSources || [])[0]));   /* older files had a list */
+  power = p && POWER_TYPES.includes(p.powerSourceType)
+    ? Object.assign({ powerSourceID: "custom-" + p.powerSourceType, name: p.model || p.powerSourceType }, p)
+    : null;
+  renderPower();
+}
+
+function renderPower() {
+  const t = power ? power.powerSourceType : "";
+  $("f-pw-" + (t || "none")).checked = true;
+  $("pw-details").hidden = !t;
+  $("wrap-battery-numbers").hidden = !(t === "" || t === "battery");
+  $("wrap-pw-supply").hidden = t !== "grid";
+  $("wrap-pw-panel").hidden = t !== "solar";
+  if (!t) return;
+  const sel = $("f-pw-setup");
+  sel.innerHTML = "";
+  standardPower().filter((s) => s.powerSourceType === t).forEach((s) => {
+    const o = document.createElement("option"); o.value = s.powerSourceID; o.textContent = s.name; sel.appendChild(o);
+  });
+  if (!standardPowerById(power.powerSourceID)) {
+    const o = document.createElement("option"); o.value = power.powerSourceID;
+    o.textContent = (power.name || "Custom") + (/\(custom\)$/.test(power.name || "") ? "" : " (custom)");
+    sel.appendChild(o);
+  }
+  sel.value = power.powerSourceID;
+  $("f-pw-name").value = power.name || "";
+  $("f-pw-model").value = power.model || "";
+  $("f-pw-supply").value = power.supplyVoltageV == null ? "" : power.supplyVoltageV;
+  $("f-pw-panel").value = power.panelPowerW == null ? "" : power.panelPowerW;
+  $("f-pw-notes").value = power.notes || "";
 }
 
 function powerChanged(skipEl) {
-  $("wrap-batmodel").hidden = !$("f-pw-battery").checked;
   storeDevice(skipEl);
   $("devsummary").textContent = summarize(device);
 }
@@ -2135,7 +2251,10 @@ function summarize(d) {
   const a = (d.attractors || []).map((x) => [x.attractorType, x.hardwareVersion, x.powerW != null ? x.powerW + " W" : ""].filter(Boolean).join(" ")).filter(Boolean);
   const t = (d.targets || []).map((x) => [x.targetType, x.color, x.material].filter(Boolean).join(", ")).filter(Boolean);
   const s = (d.sensors || []).map((x) => [x.sensorType, x.model, x.resolution].filter(Boolean).join(" · "));
-  const p = (d.powerSources || []).map((x) => [x.powerSourceType, x.model, x.capacityWh != null ? x.capacityWh + " Wh" : ""].filter(Boolean).join(" "));
+  const ps = d.powerSource || (d.powerSources || [])[0];
+  const p = ps ? [[ps.powerSourceType, ps.name || ps.model,
+    ps.capacityWh != null ? ps.capacityWh + " Wh" : "", ps.supplyVoltageV != null ? ps.supplyVoltageV + " V" : "",
+    ps.panelPowerW != null ? ps.panelPowerW + " W panel" : ""].filter(Boolean).join(" ")] : [];
   return [
     "Attractors: " + (a.length ? a.join("; ") : (d.attractors || []).length ? (d.attractors.length + " (details not filled in)") : "none"),
     "Targets: " + (t.length ? t.join("; ") : (d.targets || []).length ? (d.targets.length + " (details not filled in)") : "none"),
@@ -2210,7 +2329,6 @@ function fillDatalists() {
   fill("dl-target-types", DEVICE_CHOICES.targetTypes);
   fill("dl-target-materials", DEVICE_CHOICES.targetMaterials);
   fill("dl-target-colors", DEVICE_CHOICES.targetColors);
-  fill("dl-batteries", (DEVICE_CHOICES.batteries || []).map((b) => b.model));
 }
 
 function renderList(containerId, items, fields, minItems) {
@@ -2318,28 +2436,54 @@ $("dev-add-sensor").addEventListener("click", () => {
   storeDevice(); renderDevice();
 });
 $("f-devdesc").addEventListener("input", () => { device.description = $("f-devdesc").value || null; storeDevice(); });
-POWER_TYPES.forEach((t) => $("f-pw-" + t).addEventListener("change", () => powerChanged()));
-$("f-batmodel").addEventListener("input", () => powerChanged($("f-batmodel")));
-$("f-batmodel").addEventListener("change", () => {
-  /* A known battery fills in its capacity and voltages. */
-  const known = (DEVICE_CHOICES.batteries || []).find((b) => b.model.toLowerCase() === $("f-batmodel").value.trim().toLowerCase());
-  if (known) {
-    [["bat_Wh", "capacityWh"], ["bat_voltage", "nominalVoltageV"], ["bat_80perVolts", "voltageAt80PercentV"], ["bat_20perVolts", "voltageAt20PercentV"]]
-      .forEach(([key, field]) => {
-        if (known[field] == null) return;
-        const v = key === "bat_Wh" ? String(known[field]) : Number(known[field]).toFixed(1);
-        setVal(key, v); $("f-" + key).value = v;
-      });
-  }
+document.querySelectorAll('input[name="pw-type"]').forEach((r) => r.addEventListener("change", () => {
+  if (!r.checked) return;
+  choosePowerType(r.value);
+  renderPower();
+  powerChanged();
+}));
+$("f-pw-setup").addEventListener("change", () => {
+  const std = standardPowerById($("f-pw-setup").value);
+  if (!std) return;
+  power = clone(std);
+  if (std.powerSourceType === "battery") applyBatteryNumbers(std);
+  renderPower();
   powerChanged();
 });
-/* The battery numbers are also the battery power source's (after the generic handler saves them). */
-["bat_voltage", "bat_Wh", "bat_80perVolts", "bat_20perVolts"].forEach((k) =>
-  $("f-" + k).addEventListener("input", () => {
-    if (!device || !$("f-pw-battery").checked) return;
-    setVal(k, $("f-" + k).value);  /* this listener can run before the generic one */
-    powerChanged($("f-" + k));
+[["f-pw-model", "model", false], ["f-pw-supply", "supplyVoltageV", true], ["f-pw-panel", "panelPowerW", true], ["f-pw-notes", "notes", false]]
+  .forEach(([id, field, isNumber]) => $(id).addEventListener("input", () => {
+    if (!power) return;
+    customizePower();
+    const v = $(id).value;
+    power[field] = isNumber ? (v === "" || isNaN(Number(v)) ? null : Number(v)) : (v || null);
+    renderPowerSetupOnly();
+    powerChanged($(id));
   }));
+/* The battery numbers are also the battery setup's (this can run before the generic handler). */
+BATTERY_ROWS.forEach(([key]) =>
+  $("f-" + key).addEventListener("input", () => {
+    setVal(key, $("f-" + key).value);
+    if (!power || power.powerSourceType !== "battery") return;
+    if (!batteryMatches(standardPowerById(power.powerSourceID) || {})) customizePower();
+    renderPowerSetupOnly();
+    powerChanged($("f-" + key));
+  }));
+
+$("f-pw-name").addEventListener("input", () => {
+  if (!power) return;
+  const name = $("f-pw-name").value.trim();
+  if (!name) return;
+  customizePower(name);
+  renderPowerSetupOnly();
+  powerChanged($("f-pw-name"));
+});
+
+/* Redraw just the setup list (after an edit turned a standard setup into a custom one). */
+function renderPowerSetupOnly() {
+  const keep = ["f-pw-name", "f-pw-model", "f-pw-supply", "f-pw-panel", "f-pw-notes"].map((id) => [id, $(id).value]);
+  renderPower();
+  keep.forEach(([id, v]) => { $(id).value = v; });
+}
 fillDatalists();
 
 /* ------------------------------------------------------------------ *

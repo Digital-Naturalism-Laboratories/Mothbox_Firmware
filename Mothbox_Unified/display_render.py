@@ -330,11 +330,13 @@ def when_field(info):
 
 
 def shows_battery(device):
-    """Whether the header shows the battery gauge. Only when the chosen power sources leave
-    out a battery (grid, solar...) does it show the input voltage instead; with no power
-    source chosen it keeps the battery gauge."""
-    sources = [str(p.get("powerSourceType") or "").strip().lower()
-               for p in ((device or {}).get("powerSources") or []) if isinstance(p, dict)]
+    """Whether the header shows the battery gauge. Only when the chosen power source isn't a
+    battery (grid, solar...) does it show the input voltage instead; with no power source
+    chosen it keeps the battery gauge."""
+    device = device or {}
+    chosen = device.get("powerSource")
+    listed = [chosen] if isinstance(chosen, dict) else (device.get("powerSources") or [])   # older files had a list
+    sources = [str(p.get("powerSourceType") or "").strip().lower() for p in listed if isinstance(p, dict)]
     sources = [s for s in sources if s]
     return not sources or "battery" in sources
 

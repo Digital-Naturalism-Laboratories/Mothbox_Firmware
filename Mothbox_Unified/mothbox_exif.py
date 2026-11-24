@@ -33,7 +33,7 @@ TAIL_BYTES = 16 * 1024  # a diagnostics run is ~600 bytes; this covers many
 
 SETTINGS_CSV = "/boot/firmware/mothbox_custom/mothbox_settings.csv"
 DEVICE_FIELDS = ("deviceTypeID", "deviceType", "derivedFrom", "maker", "hardwareVersion",
-                 "attractors", "targets", "sensors", "powerSources", "computer", "customFields",
+                 "attractors", "targets", "sensors", "powerSource", "powerSources", "computer", "customFields",
                  "description")
 
 

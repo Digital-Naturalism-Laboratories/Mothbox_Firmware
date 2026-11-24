@@ -112,6 +112,9 @@ check("an empty power list keeps the battery gauge", r.shows_battery({"powerSour
 check("battery among the sources keeps the gauge",
       r.shows_battery({"powerSources": [{"powerSourceType": "solar"}, {"powerSourceType": "Battery"}]}), True)
 check("grid only shows the voltage", r.shows_battery({"powerSources": [{"powerSourceType": "grid"}]}), False)
+check("one power source: battery keeps the gauge", r.shows_battery({"powerSource": {"powerSourceType": "battery"}}), True)
+check("one power source: grid shows the voltage", r.shows_battery({"powerSource": {"powerSourceType": "grid"}}), False)
+check("one power source: none chosen keeps the gauge", r.shows_battery({"powerSource": None}), True)
 check("solar only shows the voltage", r.shows_battery({"powerSources": [{"powerSourceType": "solar"}]}), False)
 gauge = status(battery_pct=55)
 volts = status(battery_pct=55, input_voltage=12.34)
