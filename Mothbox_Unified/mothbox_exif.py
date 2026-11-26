@@ -217,7 +217,8 @@ def _r(v, nd=4):
 def build_exif_dict(*, metadata, requested_exposure_us, image_size, capture_time,
                     utc_offset_hours, computer_name, software_version, sensor_name,
                     lat=None, lon=None, diagnostics=None, hdr_index=0, hdr_count=1,
-                    image_id=None, flash_fired=True, body_model=None, device=None):
+                    image_id=None, flash_fired=True, body_model=None, device=None,
+                    pseudo_global=None):
     """
     Assemble the piexif dict. Pure function of its inputs (plus the Pi serial),
     so it can be unit-tested off the Pi. See build_exif_bytes() for the
@@ -315,6 +316,13 @@ def build_exif_dict(*, metadata, requested_exposure_us, image_size, capture_time
         "camera": {"sensor": str(sensor_name), **{k: v for k, v in cam.items() if k != "model"}},
         "diagnostics": {k: _r(v) for k, v in diagnostics.items()},
     }
+    if pseudo_global:
+        # A pseudo-global-shutter photo (6.1.4): the sensor exposed for a long time in the
+        # dark and the flash lit it for `pulse_us` -- that pulse, not ExposureTime, is
+        # what froze the insect. See pseudo_global.py.
+        # ...or, for a normal photo taken while it is enabled, why not ("skipped").
+        keep = ("pulse_us", "pulse_measured_us", "exposure_us", "gain", "sync", "ambient", "skipped")
+        comment["capture"]["pseudo_global_shutter"] = {k: pseudo_global[k] for k in keep if k in pseudo_global}
     if device:
         # The whole device description from the settings editor: type, hardware version,
         # attractors, targets and sensors, so the photo says what took it.

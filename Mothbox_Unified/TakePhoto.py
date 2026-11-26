@@ -202,6 +202,11 @@ except Exception as _e:
 # The device chosen in the settings editor (type, attractors, targets, sensors), baked into
 # every photo's EXIF; None when the settings file doesn't name one.
 MOTHBOX_DEVICE = mothbox_exif.load_device_from_settings() if mothbox_exif is not None else None
+try:
+    import pseudo_global  # pseudo-global shutter photos (6.1.4); see pseudo_global.py
+except Exception as _e:
+    print(f"[TakePhoto] pseudo_global unavailable ({_e}); taking normal photos")
+    pseudo_global = None
 import subprocess
 
 
@@ -212,6 +217,10 @@ DEFAULT_CAMERA_SETTINGS_PATH = "/boot/firmware/mothbox_custom/system/controls/de
 AF_LENS_PATH = CONTROL_ROOT / "aflensposition.txt"
 AF_GAIN_PATH=CONTROL_ROOT / "autogain.txt"
 AF_EXPOSURE_PATH =CONTROL_ROOT / "exposuretime.txt"
+# Pseudo-global shutter: which way SensorTimestamp is read, the brightness correction,
+# and the brightness the photos aim for (from the first normal photo after a calibration).
+PGS_STATE_PATH = CONTROL_ROOT / "pgs_state.txt"
+_attract_dimmed = False   # set while a pseudo-global photo has the Mothbeams off
 
 
 
@@ -657,6 +666,13 @@ def run_calibration():
     #set_last_calibration(control_values_fpath)
     atomic_update_kv(CONTROL_ROOT / "lastcalibration.txt", "lastcalibration", str(time.time()))
 
+    # Pseudo-global shutter, calibration pass 2: the next photo is a normal one (lights
+    # on, as calibrated) whose brightness the flash-only photos then aim for.
+    if pseudo_global is not None:
+        _pgs = pseudo_global.load_state(PGS_STATE_PATH)
+        _pgs["needs_reference"] = "1"
+        pseudo_global.save_state(PGS_STATE_PATH, _pgs)
+
     #save the calibrated settings back to the CSV
     #new_settings = {"LensPosition": calib_lens_position, "ExposureTime": calib_exposure, "AnalogueGain": autogain} 
     #update_camera_settings(chosen_settings_path, new_settings)
@@ -722,6 +738,185 @@ def create_dated_folder(base_path):
   os.chmod(folder_path, 0o777)  # mode=0o777 for read write for all users
   return folder_path+"/"
 
+class _CameraWithWait:
+    """picam2.capture_request with a bounded wait, also on picamera2 versions without one."""
+    def capture_request(self, wait=None):
+        try:
+            return picam2.capture_request(wait=wait)
+        except TypeError:
+            return picam2.capture_request()
+
+
+def _luma_of(request):
+    """Brightness (0..1) of the top, middle and bottom of a captured frame."""
+    main = picam2.camera_configuration()["main"]
+    with MappedArray(request, "main") as m:
+        return pseudo_global.luma_thirds(m.array, width=main["size"][0], height=main["size"][1])
+
+
+def keep_frame(request, PILs, metadatas, measure=False):
+    """Encode (YUV) or copy (RGB) one captured frame, keep its metadata, release the
+    camera buffer. Returns its brightness thirds when `measure` is set."""
+    thirds = _luma_of(request) if (measure and pseudo_global is not None) else None
+    if CAPTURE_FORMAT == capture_yuv.YUV:
+        # Encode while the camera buffer is still mapped; only the JPEG
+        # bytes (~12 MB) are kept, not a 193 MB RGB image.
+        _main = picam2.camera_configuration()["main"]
+        with MappedArray(request, "main") as _m:
+            _jpeg = capture_yuv.encode_yuv420_jpeg(_m.array, _main["size"][0], _main["size"][1],
+                                                   _main["stride"], quality=JPEG_QUALITY)
+        PILs.append(("jpeg", _jpeg, tuple(_main["size"])))
+        del _m, _jpeg
+    else:
+        PILs.append(request.make_image("main"))
+    metadatas.append(request.get_metadata())
+    capture_yuv.mem_report("frame captured")
+    request.release()
+    return thirds
+
+
+def pseudo_global_plan():
+    """(use it?, why, state) for this photo."""
+    if pseudo_global is None or not PGS_CONFIG.get("enabled"):
+        return False, "turned off (PseudoGlobalShutter in camera_settings.csv)", None
+    if mothbox_hw is None or mothbox_hw.pseudo_global_flash_pin() is None:
+        return False, "this board's flash is a relay (DIY) -- too slow for a sub-millisecond flash", None
+    state = pseudo_global.load_state(PGS_STATE_PATH)
+    return True, (f"flash {PGS_CONFIG['flash_us']} us, SensorTimestamp read as {PGS_CONFIG['sync']}, "
+                  f"correction {state['correction']}"), state
+
+
+def needs_reference(state):
+    return state is not None and (str(state.get("needs_reference")) == "1" or not state.get("target_luma"))
+
+
+def measure_reference_frame(state):
+    """
+    Calibration pass 2: one NORMAL frame (lights on, calibrated exposure and gain), measured
+    and thrown away -- never saved -- so every saved photo is taken the same way. Its
+    brightness is what the pseudo-global photos aim for.
+    """
+    flashOn()
+    try:
+        try:
+            request = picam2.capture_request(flush=True, wait=CAPTURE_TIMEOUT_S)
+        except TypeError:
+            request = picam2.capture_request(flush=True)
+        thirds = _luma_of(request)
+        request.release()
+    except SystemExit:
+        raise
+    except Exception as e:
+        flashOff()
+        warn_no_camera(f"no reference frame from camera: {e.__class__.__name__}: {e}")
+    finally:
+        flashOff()
+    state["target_luma"] = round(sum(thirds) / 3, 4)
+    state["needs_reference"] = "0"
+    pseudo_global.save_state(PGS_STATE_PATH, state)
+    print(f"[TakePhoto] pseudo-global reference (calibration pass 2, not saved): brightness "
+          f"{state['target_luma']} (top/mid/bottom {[round(t, 3) for t in thirds]})")
+
+
+def dim_for_pseudo_global():
+    """
+    Mothbeams off for a pseudo-global photo. With PGS_UseLightSensor on, the Pro's light
+    sensor (read now, in the dark) decides: too bright -> lights back on, normal photo.
+    Returns (still pseudo-global?, note).
+    """
+    global _attract_dimmed
+    _attract_dimmed = True                  # warn_no_camera() turns them back on
+    mothbox_hw.attract_channels_off()       # dark before the sensor starts exposing
+    if not PGS_CONFIG.get("use_light_sensor"):
+        return True, ""
+    lux = mothbox_hw.read_lux()
+    if lux is None:
+        return True, "light sensor unreadable -- going ahead (the dark-frame check still applies)"
+    if lux > PGS_CONFIG["max_lux"]:
+        mothbox_hw.attract_on()
+        _attract_dimmed = False
+        return False, f"light sensor reads {lux} lux, above PGS_MaxLux {PGS_CONFIG['max_lux']}"
+    return True, f"light sensor reads {lux} lux"
+
+
+def restore_normal_controls():
+    """Undo the long exposure after a pseudo-global attempt, for a normal photo."""
+    try:
+        fmin, fmax, _ = picam2.camera_controls["FrameDurationLimits"]
+        picam2.set_controls({"FrameDurationLimits": (fmin, fmax), "ExposureTime": int(calib_exposure),
+                             "AnalogueGain": float(calib_gain)})
+    except Exception as e:
+        print(f"[TakePhoto] could not restore normal controls: {e}")
+
+
+def take_pseudo_global_frames(PILs, metadatas, infos, state):
+    """
+    Pseudo-global shutter: attract lights off (already, before the camera started), an
+    exposure longer than the readout, the flash fired for PGS_FlashUs while every row is
+    open. Returns (True, "") with the frames kept, or (False, reason) for a normal photo.
+    """
+    cfg = PGS_CONFIG
+    # The readout: the frame time while the camera still runs at its fastest.
+    md = picam2.capture_metadata()
+    readout_us = float(md.get("FrameDuration") or 400000)
+    timing = pseudo_global.plan_timing(readout_us, cfg["flash_us"], cfg["window_ms"])
+    max_gain = float(picam2.camera_controls["AnalogueGain"][1])
+    pulse, gain = pseudo_global.pulse_and_gain(calib_exposure, calib_gain, cfg["flash_us"], max_gain,
+                                               state["correction"])
+    pulses = pseudo_global.hdr_pulses(pulse, num_photos)
+    print(f"[TakePhoto] pseudo-global: readout {readout_us/1000:.0f} ms, exposure "
+          f"{timing['exposure_us']/1000:.0f} ms, flash {pulses} us, gain {gain}")
+    picam2.set_controls({"ExposureTime": timing["exposure_us"],
+                         "FrameDurationLimits": (timing["frame_us"], timing["frame_us"]),
+                         "AnalogueGain": gain})
+
+    pulser = pseudo_global.FlashPulser(mothbox_hw.pseudo_global_flash_pin())
+    try:
+        pulser.open()
+    except Exception as e:
+        return False, f"flash GPIO unavailable: {e}"
+
+    def fire(micros):
+        # Real-time priority only for the pulse itself, so nothing stretches it.
+        rt = pseudo_global.realtime_priority(True)
+        try:
+            return pulser.pulse(micros)
+        finally:
+            if rt:
+                pseudo_global.realtime_priority(False)
+
+    _arm_flash_watchdog()
+    try:
+        for i, p in enumerate(pulses):
+            req, info = pseudo_global.capture_one(
+                _CameraWithWait(), fire, p, timing, _luma_of, sync=cfg["sync"],
+                target=state["target_luma"], ambient_limit=cfg["ambient_limit"],
+                timeout_s=CAPTURE_TIMEOUT_S)
+            if req is None:
+                why = info.get("reason", "?")
+                if why == "ambient":
+                    why = (f"too much ambient light (dark frame {info.get('ambient')} vs target "
+                           f"{state['target_luma']}, limit {cfg['ambient_limit']})")
+                if i == 0:
+                    return False, why
+                print(f"[TakePhoto] pseudo-global HDR frame {i} failed ({why}); keeping {i} frame(s)")
+                break
+            info["gain"] = gain
+            keep_frame(req, PILs, metadatas)
+            infos.append(info)
+            print(f"[TakePhoto] pseudo-global frame {i}: {info}")
+            if i == 0 and info.get("thirds"):
+                state["correction"] = pseudo_global.update_correction(
+                    state["correction"], state["target_luma"], sum(info["thirds"]) / 3, info.get("ambient", 0))
+        return True, ""
+    finally:
+        pulser.close()
+        flashOff()                      # pin low through mothbox_hw too; disarms the watchdog
+        if mothbox_hw is not None:
+            mothbox_hw.attract_on()     # the Mothbeams back on for the insects
+        pseudo_global.save_state(PGS_STATE_PATH, state)
+
+
 def takePhoto_Manual():
     global middleexposure, calib_lens_position, calib_exposure, calib_gain
     # LensPosition: Manual focus, Set the lens position.
@@ -761,11 +956,26 @@ def takePhoto_Manual():
     #middleexposure = calib_exposure  # this is more correct i think, but it's messing it up if it is here!
     exposure_times = list_exposuretimes(middleexposure, num_photos,exposuretime_width)
     print(exposure_times)
-    
+
+    pgs_on, pgs_why, pgs_state = pseudo_global_plan()
+    pgs_ref = pgs_on and needs_reference(pgs_state)
+    if pgs_on and not pgs_ref:
+        pgs_on, note = dim_for_pseudo_global()     # Mothbeams off before the sensor starts
+        pgs_why = note if not pgs_on else (pgs_why + (f"; {note}" if note else ""))
+
     time.sleep(1)
     start_camera_or_warn()
         
     time.sleep(3)
+
+    if pgs_ref:
+        # Calibration pass 2 (lights on, not saved), then dark for the photo itself.
+        measure_reference_frame(pgs_state)
+        pgs_on, note = dim_for_pseudo_global()
+        pgs_why = note if not pgs_on else (pgs_why + (f"; {note}" if note else ""))
+    print(f"[TakePhoto] pseudo-global shutter {'ON' if pgs_on else 'off'}: {pgs_why}")
+    # Saved photos say how they were taken: pseudo-global, or why not while it is enabled.
+    pgs_note = None if pgs_on or not PGS_CONFIG.get("enabled") else {"skipped": pgs_why}
 
     start = time.time()
 
@@ -780,8 +990,20 @@ def takePhoto_Manual():
     requests = []  # Create an empty list to store requests
     PILs = []
     metadatas = []
-    #HDR loop
-    for i in range(num_photos):
+    pgs_infos = []
+    if pgs_on:
+        ok, why = take_pseudo_global_frames(PILs, metadatas, pgs_infos, pgs_state)
+        if not ok:
+            print(f"[TakePhoto] pseudo-global photo not possible ({why}) -- taking a normal photo")
+            pgs_note = {"skipped": why}
+            PILs.clear(); metadatas.clear(); pgs_infos.clear()
+            # Stop, so the normal loop below restarts the camera with the normal exposure
+            # (a running camera applies new controls only a couple of long frames later).
+            picam2.stop()
+            restore_normal_controls()
+            pgs_on = False
+    #HDR loop (normal photos: the flash and attract lights on for the whole frame)
+    for i in (range(num_photos) if not pgs_infos else []):
         #middleexposure = camera_settings["ExposureTime"]
         
         picam2.set_controls({"ExposureTime":exposure_times[i] })
@@ -810,25 +1032,7 @@ def takePhoto_Manual():
             #flashOff()
         flashtime=time.time()-start
 
-        if CAPTURE_FORMAT == capture_yuv.YUV:
-            # Encode while the camera buffer is still mapped; only the JPEG
-            # bytes (~12 MB) are kept, not a 193 MB RGB image.
-            _main = picam2.camera_configuration()["main"]
-            with MappedArray(request, "main") as _m:
-                _jpeg = capture_yuv.encode_yuv420_jpeg(_m.array, _main["size"][0], _main["size"][1],
-                                                       _main["stride"], quality=JPEG_QUALITY)
-            PILs.append(("jpeg", _jpeg, tuple(_main["size"])))
-            del _m, _jpeg
-        else:
-            pilImage = request.make_image("main")
-            PILs.append(pilImage)
-        #image_buffer = request.make_array("main")
-        #requests.append(image_buffer)
-        
-        #print(request.get_metadata()) # this is the metadata for this image
-        metadatas.append(request.get_metadata())
-        capture_yuv.mem_report("frame captured")
-        request.release()
+        keep_frame(request, PILs, metadatas)
 
         picam2.stop()
         print("picture take time: "+str(flashtime))
@@ -892,6 +1096,7 @@ def takePhoto_Manual():
                   image_id=computerName + "_" + timestamp + hdr_suffix,
                   body_model=MOTHBOX_BODY,
                   device=MOTHBOX_DEVICE,
+                  pseudo_global=pgs_infos[i] if i < len(pgs_infos) else pgs_note,
               )
               if exif_bytes:
                   save_kwargs["exif"] = exif_bytes
@@ -1092,6 +1297,13 @@ def warn_no_camera(reason):
             mothbox_hw.flash_off()      # the flash must never be left on
         except Exception:
             pass
+        if _attract_dimmed:
+            # A pseudo-global photo had switched the Mothbeams off: put them back on, or
+            # the trap would stay dark until the next photo.
+            try:
+                mothbox_hw.attract_on()
+            except Exception:
+                pass
     else:
         run_cmd("python /home/pi/Desktop/Mothbox/Flash_Off.py")
     _disarm_flash_watchdog()
@@ -1177,6 +1389,12 @@ else:
     VerticalFlip = int(float(_vf))
 print(f"VerticalFlip: {VerticalFlip} (setting was {_vf!r})")
 onlyflash =int(camera_settings.pop("onlyflash",0))
+# Pseudo-global shutter rows (PseudoGlobalShutter, PGS_*): not picamera2 controls.
+PGS_CONFIG = pseudo_global.read_config(camera_settings) if pseudo_global is not None else {"enabled": False}
+for _k in ("PseudoGlobalShutter", "PGS_FlashUs", "PGS_WindowMs", "PGS_AmbientLimit", "PGS_Sync",
+           "PGS_UseLightSensor", "PGS_MaxLux"):
+    camera_settings.pop(_k, None)
+print(f"[TakePhoto] pseudo-global settings: {PGS_CONFIG}")
 
 #HDR settings
 num_photos = int(camera_settings.pop("HDR",num_photos)) #defaults to what is set above if not in the files being read

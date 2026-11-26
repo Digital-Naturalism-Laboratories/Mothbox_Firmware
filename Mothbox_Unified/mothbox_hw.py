@@ -516,6 +516,31 @@ def attract_off(respect_flash=True):
     print("Attract Lights Off")
 
 
+def attract_channels_off():
+    """
+    Attract lights off but the Pro's 12 V rail left UP, for a pseudo-global-shutter
+    photo: the scene goes dark while the flash (on the same rail) stays ready to fire.
+    On the DIY this is attract_off() leaving the flash relay alone.
+    """
+    if is_pro():
+        rail_12v(True)
+        _out_many([PRO["CH3"], PRO["CH2"], PRO["CH1"], PRO["CHEXT"],
+                   PRO["CHEXT_PCB_BUG_PIN"]], False)
+    else:
+        _out_many([DIY["RELAY_ATTRACT_A"], DIY["RELAY_ATTRACT_B"]], True)
+    print("Attract Lights Off (rail kept up for the flash)")
+
+
+def pseudo_global_flash_pin():
+    """
+    The GPIO the flash can be pulsed on for a pseudo-global-shutter photo, or None.
+    Only the Pro: its flash is a MOSFET that switches in microseconds. The DIY's flash
+    is a mechanical relay (5-15 ms to close, and it bounces), so a 0.8 ms flash is
+    impossible there and it takes normal photos.
+    """
+    return PRO["FLASH"] if is_pro() else None
+
+
 def flash_on():
     if is_pro():
         _out(PRO["FLASH"], True)
@@ -601,6 +626,58 @@ def read_power():
             except Exception:
                 pass
     return result
+
+
+# ------------------------------------------------------------ light sensor --
+def read_lux():
+    """
+    Ambient light in lux, read now, or None (DIY, no sensor, or a read error).
+
+    Uses the same reader Diagnostics.py logs every session with,
+    scripts/readLightSensor.py (LTR-F216A on new Pro PCBs, LTR-303 on old ones), and
+    raises the sensor rail first as Diagnostics does, restoring it afterwards. Read it
+    with the attract lights OFF, or the sensor measures the Mothbox's own lights.
+    Takes about 1 s.
+    """
+    if not is_pro():
+        return None
+    rail_was_on = None
+    sensor = None
+    try:
+        rail_was_on = rail_3v3_is_on()
+        if not rail_was_on:
+            rail_3v3(True)
+            time.sleep(0.5)
+        import importlib.util
+        import sys
+        script = Path(__file__).resolve().parent / "scripts" / "readLightSensor.py"
+        # It imports ltr303.py (the old-PCB sensor's library) from its own folder.
+        if str(script.parent) not in sys.path:
+            sys.path.insert(0, str(script.parent))
+        spec = importlib.util.spec_from_file_location("readLightSensor", script)
+        reader = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(reader)
+        name, sensor = reader.find_sensor(bus_num=I2C_BUS)
+        if sensor is None:
+            return None
+        time.sleep(0.5)                      # first conversion, as readLightSensor.py waits
+        lux = sensor.read_lux()[0]
+        return round(float(lux), 3)
+    except Exception as e:
+        print(f"[mothbox_hw] light sensor read failed: {e}")
+        return None
+    finally:
+        bus = getattr(sensor, "bus", None)
+        if bus is not None:
+            try:
+                bus.close()
+            except Exception:
+                pass
+        if rail_was_on is False:
+            try:
+                rail_3v3(False)
+            except Exception:
+                pass
 
 
 # --------------------------------------------------------------- switches --

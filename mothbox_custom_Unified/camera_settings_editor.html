@@ -412,6 +412,63 @@
     </section>
 
     <section>
+      <h2>Freezing motion (pseudo-global shutter)</h2>
+      <p class="sechint">The camera reads its sensor out row by row over about 0.4&nbsp;s, so insects that move come out smeared or bent. With this on, each photo is taken in the dark: the attract lights switch off, the camera exposes a little longer than that readout, and the flash fires for under a millisecond while every row is exposing at once &mdash; like a global shutter. <strong>Mothbox Pro only:</strong> a DIY's flash is a relay, far too slow for this, so a DIY takes normal photos whatever this says.</p>
+
+      <div class="field">
+        <label class="lbl">Pseudo-global shutter</label>
+        <div class="seg" id="f-PseudoGlobalShutter" data-key="PseudoGlobalShutter"></div>
+        <p class="hint">Turn it off where there is a lot of light around (street lights, dusk, a bright moon on open ground): ambient light during the long exposure smears the photo again. The box also takes a normal photo by itself whenever the dark frame before the flash is too bright, and can let the light sensor decide (below). After each calibration one extra frame is taken with the lights on to set the brightness the flash photos aim for; it is never saved.</p>
+      </div>
+
+      <div class="pair">
+        <div class="field" id="wrap-PGS_FlashUs">
+          <label class="lbl" for="f-PGS_FlashUs">Flash length (&micro;s)</label>
+          <input type="number" id="f-PGS_FlashUs" data-key="PGS_FlashUs" min="100" max="5000" step="50">
+          <p class="readout" id="r-flash"></p>
+          <p class="hint">800 freezes most moths. Shorter freezes faster insects; the gain goes up to keep the brightness (and the flash grows only if the gain runs out).</p>
+          <div class="fielderr" id="e-PGS_FlashUs"></div>
+        </div>
+        <div class="field" id="wrap-PGS_AmbientLimit">
+          <label class="lbl" for="f-PGS_AmbientLimit">Ambient light limit (0&ndash;1)</label>
+          <input type="number" id="f-PGS_AmbientLimit" data-key="PGS_AmbientLimit" min="0" max="1" step="0.05">
+          <p class="hint">If the dark frame is brighter than this share of a normal photo, that photo is taken the normal way.</p>
+          <div class="fielderr" id="e-PGS_AmbientLimit"></div>
+        </div>
+      </div>
+
+      <div class="pair">
+        <div class="field" id="wrap-PGS_WindowMs">
+          <label class="lbl" for="f-PGS_WindowMs">Extra exposure past the readout (ms)</label>
+          <input type="number" id="f-PGS_WindowMs" data-key="PGS_WindowMs" min="10" step="5">
+          <p class="hint">How long every row is open together; the flash fires in the middle. Longer is more forgiving of timing but lets in more ambient light.</p>
+          <div class="fielderr" id="e-PGS_WindowMs"></div>
+        </div>
+        <div class="field" id="wrap-PGS_Sync">
+          <label class="lbl" for="f-PGS_Sync">Frame timing</label>
+          <select id="f-PGS_Sync" data-key="PGS_Sync">
+            <option value="sof">sof &mdash; timestamp is the start of readout (default)</option>
+            <option value="soe">soe &mdash; timestamp is the start of exposure</option>
+          </select>
+          <p class="hint">How the flash is timed from the camera's frame timestamp. The choice is logged with every photo; a photo the flash missed is logged and taken the normal way.</p>
+        </div>
+      </div>
+      <div class="pair">
+        <div class="field" id="wrap-PGS_UseLightSensor">
+          <label class="lbl">Let the light sensor decide</label>
+          <div class="seg" id="f-PGS_UseLightSensor" data-key="PGS_UseLightSensor"></div>
+          <p class="hint">Off by default. On: before each photo the Pro's light sensor is read with the attract lights off, and above the limit the photo is taken the normal way.</p>
+        </div>
+        <div class="field" id="wrap-PGS_MaxLux">
+          <label class="lbl" for="f-PGS_MaxLux">Light sensor limit (lux)</label>
+          <input type="number" id="f-PGS_MaxLux" data-key="PGS_MaxLux" min="0" step="0.5">
+          <p class="hint">Night is under 1 lux, moonlight about 0.3, a street light 5&ndash;20.</p>
+          <div class="fielderr" id="e-PGS_MaxLux"></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
       <h2>What each photo will do</h2>
       <div class="stats" id="stats"></div>
     </section>
@@ -461,6 +518,13 @@ const DEFAULTS = [
   ["HDR", "0", "0 is off 3 is HDR with 3 photos -  1-2 is also off  3 and up is that many photos to take"],
   ["HDR_width", "7000", " duration of exposure to shift on both sides doesnt do anything if HDR is not enabled"],
   ["onlyflash", "0", "switch to using only the flash for the attraction by setting to 1 (not currently implemented)"],
+  ["PseudoGlobalShutter", "1", " 1 is on (default): the attract lights go off and the camera exposes in the dark while a short flash freezes the insects. Mothbox Pro only (the DIY's relay flash is too slow). 0 is off: normal photos with the lights on -- use 0 where there is too much ambient light"],
+  ["PGS_FlashUs", "800", " flash pulse for pseudo-global photos in microseconds (100 to 5000). Shorter freezes faster insects; the gain goes up to keep the brightness"],
+  ["PGS_WindowMs", "60", " how much longer than the sensor readout the exposure is in milliseconds: the time every row is open together; the flash fires in the middle of it"],
+  ["PGS_AmbientLimit", "0.25", " if the dark frame before the flash is brighter than this share of a normal photo (0 to 1) the box takes a normal photo instead"],
+  ["PGS_Sync", "sof", " how the flash is timed from the camera's frame timestamp: sof reads it as the start of readout (the Pi's frame-start time); soe as the start of exposure. Logged with every photo"],
+  ["PGS_UseLightSensor", "0", " 1 lets the Pro's light sensor decide: if it reads more than PGS_MaxLux (with the attract lights off) the photo is taken the normal way. 0 (default) ignores the sensor"],
+  ["PGS_MaxLux", "5", " with PGS_UseLightSensor on: above this many lux the box takes normal photos (night is under 1; moonlight about 0.3; a street light 5 to 20)"],
   ["LensPositionMin", "0.4", " farthest focus the autofocus may settle on. Units are diopters = 1 / metres so 0.4 is 2.5 m away. A focus farther than this is rejected and the previous one kept"],
   ["LensPositionMax", "16.7", " nearest focus the autofocus may settle on. 16.7 is 6 cm away (100 / cm). A focus nearer than this is rejected -- e.g. something sitting right in front of the lens. Lower it to tighten"]
 ];
@@ -468,7 +532,9 @@ const DEFAULTS = [
 /* Settings with a purpose-built control above. Anything else lands in "Other settings". */
 const HANDLED = new Set(["AutoCalibration", "AutoCalibrationPeriod", "ImageFileType", "VerticalFlip",
   "AfMode", "AfSpeed", "AfRange", "AwbEnable", "LensPosition", "ExposureValue", "ExposureTime",
-  "AnalogueGain", "HDR", "HDR_width", "LensPositionMin", "LensPositionMax"]);
+  "AnalogueGain", "HDR", "HDR_width", "LensPositionMin", "LensPositionMax",
+  "PseudoGlobalShutter", "PGS_FlashUs", "PGS_WindowMs", "PGS_AmbientLimit", "PGS_Sync",
+  "PGS_UseLightSensor", "PGS_MaxLux"]);
 
 let rows = [];
 let header = ["SETTING", "VALUE", "DETAILS"];
@@ -757,9 +823,12 @@ function buildStaticControls() {
   seg("f-AutoCalibration", "AutoCalibration", [["1", "Yes"], ["0", "No"]]);
   seg("f-AwbEnable", "AwbEnable", [["1", "Yes"], ["0", "No"]]);
   seg("f-VerticalFlip", "VerticalFlip", [["auto", "Auto"], ["0", "No"], ["1", "Yes"]]);
+  seg("f-PseudoGlobalShutter", "PseudoGlobalShutter", [["1", "On"], ["0", "Off"]]);
+  seg("f-PGS_UseLightSensor", "PGS_UseLightSensor", [["1", "On"], ["0", "Off"]]);
 
   ["AutoCalibrationPeriod", "LensPosition", "ExposureTime", "AnalogueGain", "ExposureValue", "HDR", "HDR_width",
-   "ImageFileType", "AfMode", "AfSpeed", "AfRange"].forEach((key) => {
+   "ImageFileType", "AfMode", "AfSpeed", "AfRange",
+   "PGS_FlashUs", "PGS_WindowMs", "PGS_AmbientLimit", "PGS_Sync", "PGS_MaxLux"].forEach((key) => {
     const el = $("f-" + key);
     el.addEventListener("input", () => { setVal(key, el.value); refresh(el); });
     el.addEventListener("change", () => { setVal(key, el.value); refresh(el); });
@@ -792,11 +861,14 @@ function doRefresh(skipEl) {
   segRefresh("f-AutoCalibration", getVal("AutoCalibration"), yesNo);
   segRefresh("f-AwbEnable", getVal("AwbEnable"), yesNo);
   segRefresh("f-VerticalFlip", getVal("VerticalFlip"), flipNorm);
+  segRefresh("f-PseudoGlobalShutter", getVal("PseudoGlobalShutter"), yesNo);
+  segRefresh("f-PGS_UseLightSensor", getVal("PGS_UseLightSensor"), yesNo);
   const autoCal = yesNo(getVal("AutoCalibration")) === "1";
 
-  ["AutoCalibrationPeriod", "LensPosition", "ExposureTime", "AnalogueGain", "ExposureValue", "HDR", "HDR_width"]
+  ["AutoCalibrationPeriod", "LensPosition", "ExposureTime", "AnalogueGain", "ExposureValue", "HDR", "HDR_width",
+   "PGS_FlashUs", "PGS_WindowMs", "PGS_AmbientLimit", "PGS_MaxLux"]
     .forEach((k) => setInput("f-" + k, getVal(k), skipEl));
-  ["ImageFileType", "AfMode", "AfSpeed", "AfRange"].forEach((k) => {
+  ["ImageFileType", "AfMode", "AfSpeed", "AfRange", "PGS_Sync"].forEach((k) => {
     const el = $("f-" + k); const v = String(getVal(k)).trim();
     if (el !== skipEl && el.value !== v) el.value = v;
     if (el.value !== v) errors.push(k + " has a value this editor does not know (" + v + ").");
@@ -847,11 +919,26 @@ function doRefresh(skipEl) {
   const hw = numOf(getVal("HDR_width"));
   fieldErr("e-HDR_width", (isNaN(hw) || hw < 0) ? "Enter a number of microseconds, 0 or more." : "", hdrOn ? errors : null);
 
+  /* pseudo-global shutter */
+  const pgsOn = yesNo(getVal("PseudoGlobalShutter")) === "1";
+  ["wrap-PGS_FlashUs", "wrap-PGS_AmbientLimit", "wrap-PGS_WindowMs", "wrap-PGS_Sync", "wrap-PGS_UseLightSensor"].forEach((id) => setFieldEnabled($(id), pgsOn));
+  const luxOn = pgsOn && yesNo(getVal("PGS_UseLightSensor")) === "1";
+  setFieldEnabled($("wrap-PGS_MaxLux"), luxOn);
+  const maxLux = numOf(getVal("PGS_MaxLux"));
+  fieldErr("e-PGS_MaxLux", (isNaN(maxLux) || maxLux < 0) ? "Enter a number of lux, 0 or more." : "", luxOn ? errors : null);
+  const flash = numOf(getVal("PGS_FlashUs"));
+  $("r-flash").textContent = isNaN(flash) || flash <= 0 ? "" : "= 1/" + Math.round(1000000 / flash) + " s of light";
+  fieldErr("e-PGS_FlashUs", (isNaN(flash) || !Number.isInteger(flash) || flash < 100 || flash > 5000) ? "Enter a whole number of microseconds from 100 to 5000." : "", pgsOn ? errors : null);
+  const amb = numOf(getVal("PGS_AmbientLimit"));
+  fieldErr("e-PGS_AmbientLimit", (isNaN(amb) || amb < 0 || amb > 1) ? "Enter a number from 0 to 1." : "", pgsOn ? errors : null);
+  const win = numOf(getVal("PGS_WindowMs"));
+  fieldErr("e-PGS_WindowMs", (isNaN(win) || win < 10) ? "Enter 10 ms or more." : (win > 500 ? "Over half a second of extra exposure lets in a lot of ambient light." : ""), pgsOn && (isNaN(win) || win < 10) ? errors : null);
+
   /* summary */
   const shots = hdrOn ? hdr : 1;
   const focusTxt = autoCal ? "autofocus, re-run every " + (isNaN(period) ? "?" : (period / 60).toFixed(0)) + " min" : (isNaN(lens) ? "manual" : "manual, " + fmtCm(cmFromDiop(lens)));
   const stats = [
-    [isNaN(exp) ? "—" : exp + " µs", "exposure"],
+    pgsOn ? [isNaN(flash) ? "—" : flash + " µs", "flash in the dark (Pro)"] : [isNaN(exp) ? "—" : exp + " µs", "exposure"],
     [autoCal ? "auto" : (isNaN(gain) ? "—" : gain + "×"), "gain"],
     [shots, hdrOn ? "bracketed photos" : "photo per shot"],
     [focusTxt, "focus"],

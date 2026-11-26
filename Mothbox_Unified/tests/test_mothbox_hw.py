@@ -196,4 +196,39 @@ for lvl, want in (({16:0}, (0,0)), ({12:0}, (1,1)), ({}, (1,0))):
     hw, gpio, runs, tmp = install_fakes(FakeBus(set())); hw.HARDWARE_FILE.write_text("hardware=diy\n"); gpio.inputs = lvl
     sw = hw.read_switches(); check(f"diy jumpers {lvl or 'none'} -> Active,Debug={want}", (sw["Active"],sw["Debug"])==want and sw["U1"]==0 and set(sw)==set(hw.SWITCH_NAMES))
 
+# --------------------------------------------------- light sensor (lux) --
+# read_lux() reuses scripts/readLightSensor.py (what Diagnostics logs); stub its I2C side.
+import importlib.util
+import mothbox_hw as _lux_hw
+_ls_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "readLightSensor.py")
+check("read_lux uses the existing reader, scripts/readLightSensor.py", os.path.exists(_ls_path))
+
+class _Sensor:
+    def __init__(self, lux): self.lux, self.bus = lux, types.SimpleNamespace(close=lambda: None)
+    def read_lux(self): return self.lux, 123, None
+
+_real_spec = importlib.util.spec_from_file_location
+_saved = (_lux_hw.is_pro, _lux_hw.rail_3v3_is_on, _lux_hw.time.sleep)
+try:
+    _lux_hw.time.sleep = lambda s: None
+    _lux_hw.is_pro = lambda: True
+    _lux_hw.rail_3v3_is_on = lambda: True
+    def _fake_spec(found):
+        def spec(name, path):
+            check("...loaded from scripts/readLightSensor.py", str(path).endswith(os.path.join("scripts", "readLightSensor.py")))
+            s = _real_spec(name, path)
+            # smbus2 exists only on the Pi: stand in for the script's sensor lookup.
+            s.loader.exec_module = lambda mod: setattr(mod, "find_sensor", lambda bus_num=1: found)
+            return s
+        return spec
+    importlib.util.spec_from_file_location = _fake_spec(("LTR-F216A", _Sensor(0.4567)))
+    check("read_lux returns the sensor's lux", _lux_hw.read_lux() == 0.457)
+    importlib.util.spec_from_file_location = _fake_spec((None, None))
+    check("no light sensor -> None", _lux_hw.read_lux() is None)
+    _lux_hw.is_pro = lambda: False
+    check("DIY -> None (no sensor)", _lux_hw.read_lux() is None)
+finally:
+    importlib.util.spec_from_file_location = _real_spec
+    _lux_hw.is_pro, _lux_hw.rail_3v3_is_on, _lux_hw.time.sleep = _saved
+
 print(f"\nALL {passed} CHECKS PASSED")

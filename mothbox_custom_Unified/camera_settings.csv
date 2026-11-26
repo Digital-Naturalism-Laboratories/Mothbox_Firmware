@@ -14,5 +14,12 @@ AnalogueGain,1.1875,AnalogueGain value between 1.0 and 16.0.
 HDR,0,0 is off 3 is HDR with 3 photos -  1-2 is also off  3 and up is that many photos to take
 HDR_width,7000, duration of exposure to shift on both sides doesnt do anything if HDR is not enabled
 onlyflash,0,switch to using only the flash for the attraction by setting to 1 (not currently implemented)
+PseudoGlobalShutter,1, 1 is on (default): the attract lights go off and the camera exposes in the dark while a short flash freezes the insects. Mothbox Pro only (the DIY's relay flash is too slow). 0 is off: normal photos with the lights on -- use 0 where there is too much ambient light
+PGS_FlashUs,800, flash pulse for pseudo-global photos in microseconds (100 to 5000). Shorter freezes faster insects; the gain goes up to keep the brightness
+PGS_WindowMs,60, how much longer than the sensor readout the exposure is in milliseconds: the time every row is open together; the flash fires in the middle of it
+PGS_AmbientLimit,0.25, if the dark frame before the flash is brighter than this share of a normal photo (0 to 1) the box takes a normal photo instead
+PGS_Sync,sof, how the flash is timed from the camera's frame timestamp: sof reads it as the start of readout (the Pi's frame-start time); soe as the start of exposure. Logged with every photo
+PGS_UseLightSensor,0, 1 lets the Pro's light sensor decide: if it reads more than PGS_MaxLux (with the attract lights off) the photo is taken the normal way. 0 (default) ignores the sensor
+PGS_MaxLux,5, with PGS_UseLightSensor on: above this many lux the box takes normal photos (night is under 1; moonlight about 0.3; a street light 5 to 20)
 LensPositionMin,0.4, farthest focus the autofocus may settle on. Units are diopters = 1 / metres so 0.4 is 2.5 m away. A focus farther than this is rejected and the previous one kept
 LensPositionMax,16.7, nearest focus the autofocus may settle on. 16.7 is 6 cm away (100 / cm). A focus nearer than this is rejected -- e.g. something sitting right in front of the lens. Lower it to tighten
