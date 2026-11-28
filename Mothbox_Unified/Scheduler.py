@@ -525,6 +525,8 @@ SETTING_DEFAULTS = {
     "bat_80perVolts": 2.0,
     "bat_20perVolts": 1.0,
     "rtc_battery":  None,   # None = row missing: leave charging as config.txt set it
+    "hi_power_always": False,  # Active runs as HI POWER (for a DIY, which has no HI switch)
+    "cloud_upload": False,     # Cloud_Backup.py uploads photos (HI POWER only)
 }
 
 
@@ -643,6 +645,13 @@ def load_settings(filename):
                     # rechargeable | regular -- the RTC coin cell. Checked and
                     # applied by clock_battery.py at every boot.
                     result["rtc_battery"] = value
+                elif setting == "hi_power_always":
+                    result["hi_power_always"] = value.strip().lower() in ("true", "1", "yes", "on")
+                elif setting == "cloud_upload":
+                    result["cloud_upload"] = value.strip().lower() in ("true", "1", "yes", "on")
+                elif setting.startswith("cloud_"):
+                    # The connection and timing: read directly by Cloud_Backup.py.
+                    pass
                 elif setting == "hardware":
                     # auto | pro | diy -- read directly by mothbox_hw.py; parsed
                     # here only so it is recognised and shown in the boot log.
@@ -1658,7 +1667,12 @@ def run_session(keep_awake):
         os.system("sudo reboot")
 
     def read_switches():
-        return mothbox_hw.read_switches() if mothbox_hw is not None else {"Active": 1, "HI": 1}
+        switches = mothbox_hw.read_switches() if mothbox_hw is not None else {"Active": 1, "HI": 1}
+        if HI_POWER_FROM_SETTING:
+            # HI POWER came from the setting, not the switch (a DIY has none):
+            # only the Active and Debug switches can end it.
+            switches = dict(switches, HI=1)
+        return switches
 
     reason = session.run(
         plan_at=lambda t: schedule_core.plan_at(sched, t),
@@ -2101,6 +2115,14 @@ if(sDebug==0 and sHI==1):
     None
     mode="HI_POW"
 
+# hi_power_always: Active runs as HI POWER, HI switch or not. A Mothbox DIY has
+# no HI switch, so this is how it gets HI POWER (wifi on, never sleeps).
+HI_POWER_FROM_SETTING = False
+if mode == "ACTIVE" and settings.get("hi_power_always"):
+    mode = "HI_POW"
+    HI_POWER_FROM_SETTING = True
+    log_ok("hi_power_always is on -- Active runs as HI POWER (wifi on, never sleeps).")
+
 log_ok(f"Mode determined: {mode}")
 # Write mode to controls.txt
 #set_Mode(controlsFpath, mode)
@@ -2275,6 +2297,13 @@ elif mode == "ACTIVE":
     log_ok("Mode is ACTIVE -- session running.")
 elif mode == "HI_POW":
     log_ok("Mode is HI POWER -- wifi on, never sleeps, lights and photos follow the schedule.")
+
+if settings.get("cloud_upload"):
+    if mode == "HI_POW":
+        log_ok("Cloud upload is on -- Cloud_Backup.py uploads new photos (log: logs/Cloud_log.txt).")
+    else:
+        log_warn(f"Cloud upload is on, but the box is in {mode} mode: uploads only run in HI POWER "
+                 f"(the HI switch, or hi_power_always in the settings).")
 else:
     log_warn(f"Unrecognised mode: {mode}")
 
@@ -2289,5 +2318,6 @@ if mode in ("DEBUG", "PARTY"):
 else:
     enable_shutdown()
     if mode == "HI_POW":
-        log_info("HI POWER: never powers off -- following the schedule and watching the HI switch.")
+        log_info("HI POWER: never powers off -- following the schedule and watching the "
+                 + ("Active and Debug switches." if HI_POWER_FROM_SETTING else "HI switch."))
     run_session(keep_awake=(mode == "HI_POW"))

@@ -536,6 +536,16 @@
     </section>
 
     <section>
+      <h2>HI POWER</h2>
+      <p class="sechint">HI POWER keeps WiFi on and never sleeps between capture windows; lights and photos still follow the schedule. It is the mode cloud uploads run in.</p>
+      <div class="field">
+        <label class="lbl" for="f-hi_power_always">HI POWER always on</label>
+        <div class="seg" id="f-hi_power_always" data-key="hi_power_always"></div>
+        <p class="hint">On: whenever the Active switch is on (and Debug is off), the box runs in HI POWER, exactly like a Mothbox Pro with its HI switch on. A Mothbox DIY has no HI switch, so this is how it gets HI POWER. <strong>The box never sleeps, so it uses much more battery</strong>; plan on mains or solar power.</p>
+      </div>
+    </section>
+
+    <section>
       <h2>WiFi</h2>
       <p class="sechint">A network the Mothbox should join when it is in a mode that turns WiFi on.</p>
 
@@ -557,59 +567,104 @@
 
     <section>
       <h2>Cloud upload</h2>
-      <p class="sechint"><strong>Not used yet.</strong> A future firmware will be able to upload your data to the cloud automatically; fill these in now if you like, and leave the rest blank. Everything here is stored as plain text in the settings file on the SD card, so anyone with the card can read it.</p>
+      <p class="sechint">Uploads new photos to a server, as a second backup next to the USB drive. A photo stays in <code>photos/</code> until every backup that is on has it (the USB drive when one is plugged in, and the server). Only then does it move to <code>photos_backedup/</code>, which keeps it until the SD card runs low.</p>
+
+      <div class="field">
+        <label class="lbl" for="f-cloud_upload">Upload to the cloud</label>
+        <div class="seg" id="f-cloud_upload" data-key="cloud_upload"></div>
+        <p class="hint"><strong>Uploads only happen in HI POWER mode</strong>, the only mode that keeps WiFi on and stays awake: the HI switch on a Pro, or &ldquo;HI POWER always on&rdquo; above. The box also needs a WiFi network it knows (see WiFi), or another internet connection.</p>
+      </div>
+
+      <div class="msg warn" id="cloud-warn"><strong>Anyone holding the SD card can read these settings, password included.</strong> For storage like a Hetzner Storage Box, give each box (or project) its own sub-account restricted to one folder, so a stolen box can&rsquo;t reach your other data. Prefer SFTP or FTPS: plain FTP sends the password and photos unencrypted.</div>
+
+      <div id="cloud-fields">
       <div class="twocol">
       <div>
         <div class="field">
-          <label class="lbl" for="f-cloud_service">Cloud service</label>
-          <input type="text" id="f-cloud_service" data-key="cloud_service" list="dl-cloud-services" autocomplete="off" spellcheck="false" placeholder="e.g. Antenna, Amazon S3">
+          <label class="lbl" for="f-cloud_service">How to connect</label>
+          <select id="f-cloud_service" data-key="cloud_service">
+            <option value="">Choose&hellip;</option>
+            <option value="sftp">SFTP (e.g. Hetzner Storage Box) &mdash; encrypted</option>
+            <option value="ftps">FTPS (FTP with encryption)</option>
+            <option value="ftp">FTP &mdash; not encrypted</option>
+            <option value="webdav">WebDAV (e.g. Nextcloud)</option>
+            <option value="s3">S3 or S3-compatible (AWS, Backblaze B2, Wasabi, MinIO)</option>
+            <option value="rclone_conf">rclone.conf file (Google Drive, Dropbox, OneDrive, anything else)</option>
+          </select>
+          <p class="hint" id="cloud-service-hint"></p>
+          <div class="fielderr" id="e-cloud_service"></div>
         </div>
-        <div class="field">
-          <label class="lbl" for="f-cloud_url">Server / endpoint URL</label>
-          <input type="text" id="f-cloud_url" data-key="cloud_url" autocomplete="off" spellcheck="false" placeholder="https://&hellip;">
+        <div class="field" id="wrap-cloud_url">
+          <label class="lbl" for="f-cloud_url" id="lbl-cloud_url">Server</label>
+          <input type="text" id="f-cloud_url" data-key="cloud_url" autocomplete="off" spellcheck="false">
+          <div class="fielderr" id="e-cloud_url"></div>
         </div>
-        <div class="field">
-          <label class="lbl" for="f-cloud_bucket">Bucket, folder or project</label>
+        <div class="field" id="wrap-cloud_bucket">
+          <label class="lbl" for="f-cloud_bucket" id="lbl-cloud_bucket">Folder on the server</label>
           <input type="text" id="f-cloud_bucket" data-key="cloud_bucket" autocomplete="off" spellcheck="false">
+          <p class="hint">Photos go into <code>photos_backup_&lt;name&gt;/</code> inside it, laid out as on the USB drive, and logs into <code>logs_&lt;name&gt;/</code>.</p>
+          <div class="fielderr" id="e-cloud_bucket"></div>
+        </div>
+        <div class="field" id="wrap-cloud_region">
+          <label class="lbl" for="f-cloud_region">Region</label>
+          <input type="text" id="f-cloud_region" data-key="cloud_region" autocomplete="off" spellcheck="false" placeholder="e.g. eu-central-1">
+        </div>
+      </div>
+      <div>
+        <div class="field" id="wrap-cloud_user">
+          <label class="lbl" for="f-cloud_user">User name</label>
+          <input type="text" id="f-cloud_user" data-key="cloud_user" autocomplete="off" spellcheck="false">
+          <div class="fielderr" id="e-cloud_user"></div>
+        </div>
+        <div class="field" id="wrap-cloud_password">
+          <label class="lbl" for="f-cloud_password">Password</label>
+          <input type="text" id="f-cloud_password" data-key="cloud_password" autocomplete="off" spellcheck="false">
+          <div class="fielderr" id="e-cloud_password"></div>
+        </div>
+        <div class="field" id="wrap-cloud_api_key">
+          <label class="lbl" for="f-cloud_api_key">Access key ID</label>
+          <input type="text" id="f-cloud_api_key" data-key="cloud_api_key" autocomplete="off" spellcheck="false">
+          <div class="fielderr" id="e-cloud_api_key"></div>
+        </div>
+        <div class="field" id="wrap-cloud_api_secret">
+          <label class="lbl" for="f-cloud_api_secret">Secret access key</label>
+          <input type="text" id="f-cloud_api_secret" data-key="cloud_api_secret" autocomplete="off" spellcheck="false">
+          <div class="fielderr" id="e-cloud_api_secret"></div>
+        </div>
+      </div>
+      </div>
+
+      <div class="twocol">
+      <div>
+        <div class="field">
+          <label class="lbl" for="f-cloud_when">When to upload</label>
+          <select id="f-cloud_when" data-key="cloud_when">
+            <option value="between_windows">Between capture windows (recommended)</option>
+            <option value="anytime">Any time, also during capture windows</option>
+          </select>
+          <p class="hint">Between windows, uploads don&rsquo;t compete with the camera and lights (which matters on a 1&nbsp;GB Pi), and run by day when there is solar power. If your schedule never leaves a gap, choose &ldquo;Any time&rdquo;.</p>
         </div>
         <div class="field">
-          <label class="lbl" for="f-cloud_region">Region</label>
-          <input type="text" id="f-cloud_region" data-key="cloud_region" autocomplete="off" spellcheck="false" placeholder="e.g. eu-west-1 (S3)">
+          <label class="lbl" for="f-cloud_interval">Minutes between uploads</label>
+          <input type="number" id="f-cloud_interval" data-key="cloud_interval" min="10" max="1440" step="1">
+          <p class="hint">How often it tries (10&ndash;1440). An upload also starts as soon as each capture window ends.</p>
+          <div class="fielderr" id="e-cloud_interval"></div>
         </div>
       </div>
       <div>
         <div class="field">
-          <label class="lbl" for="f-cloud_user">User name or email</label>
-          <input type="text" id="f-cloud_user" data-key="cloud_user" autocomplete="off" spellcheck="false">
+          <label class="lbl" for="f-cloud_bwlimit">Speed limit (optional)</label>
+          <input type="text" id="f-cloud_bwlimit" data-key="cloud_bwlimit" autocomplete="off" spellcheck="false" placeholder="e.g. 2M">
+          <p class="hint">Leave blank for no limit. <code>2M</code> is 2 megabytes per second, <code>500k</code> 500 kilobytes. Useful on a shared or metered connection.</p>
+          <div class="fielderr" id="e-cloud_bwlimit"></div>
         </div>
         <div class="field">
-          <label class="lbl" for="f-cloud_password">Password</label>
-          <input type="text" id="f-cloud_password" data-key="cloud_password" autocomplete="off" spellcheck="false">
-        </div>
-        <div class="field">
-          <label class="lbl" for="f-cloud_api_key">API key / access key ID</label>
-          <input type="text" id="f-cloud_api_key" data-key="cloud_api_key" autocomplete="off" spellcheck="false">
-        </div>
-        <div class="field">
-          <label class="lbl" for="f-cloud_api_secret">API secret / secret access key</label>
-          <input type="text" id="f-cloud_api_secret" data-key="cloud_api_secret" autocomplete="off" spellcheck="false">
-        </div>
-        <div class="field">
-          <label class="lbl" for="f-cloud_token">Access token</label>
-          <input type="text" id="f-cloud_token" data-key="cloud_token" autocomplete="off" spellcheck="false">
-          <p class="hint">Services differ: S3 uses an access key ID and secret, Antenna and many others a token or API key, SFTP and WebDAV a user name and password.</p>
+          <label class="lbl">Testing it</label>
+          <p class="hint">With the box on WiFi (Debug mode is fine), run <code>python3 /home/pi/Desktop/Mothbox/Cloud_Backup.py --test</code>. It writes one small test file to the folder above. The upload log is <code>logs/Cloud_log.txt</code>.</p>
         </div>
       </div>
       </div>
-      <datalist id="dl-cloud-services">
-        <option value="Antenna"></option>
-        <option value="Amazon S3 (or S3-compatible)"></option>
-        <option value="Google Drive"></option>
-        <option value="Dropbox"></option>
-        <option value="SFTP"></option>
-        <option value="WebDAV"></option>
-        <option value="Other"></option>
-      </datalist>
+      </div>
     </section>
 
 
@@ -818,15 +873,19 @@ const DEFAULTS = [
   ["bat_20perVolts", "10.5", " this is the voltage of the battery when it is about 20 percent full"],
   ["wifissid", "examplessid", " write an SSID of a wifi you want to add to the pi "],
   ["wifipass", "examplepass", " write the wifi password (not currently implemented)"],
-  ["cloud_service", "", " cloud upload (placeholder, not used yet): which cloud service to upload to. Stored as plain text"],
-  ["cloud_url", "", " cloud upload (placeholder, not used yet): server or endpoint URL. Stored as plain text"],
-  ["cloud_bucket", "", " cloud upload (placeholder, not used yet): bucket, folder or project to upload into. Stored as plain text"],
-  ["cloud_region", "", " cloud upload (placeholder, not used yet): the service's region, if it has them. Stored as plain text"],
-  ["cloud_user", "", " cloud upload (placeholder, not used yet): user name or email. Stored as plain text"],
-  ["cloud_password", "", " cloud upload (placeholder, not used yet): password. Stored as plain text"],
-  ["cloud_api_key", "", " cloud upload (placeholder, not used yet): API key or access key ID. Stored as plain text"],
-  ["cloud_api_secret", "", " cloud upload (placeholder, not used yet): API secret or secret access key. Stored as plain text"],
-  ["cloud_token", "", " cloud upload (placeholder, not used yet): access token. Stored as plain text"],
+  ["hi_power_always", "False", " True runs the box in HI POWER (wifi on - never sleeps) whenever the Active switch is on - like a Pro with its HI switch on. For a Mothbox DIY - which has no HI switch. Uses much more battery"],
+  ["cloud_upload", "False", " True uploads new photos to the server below (with rclone). Only in HI POWER mode - and needs wifi or another internet connection"],
+  ["cloud_service", "", " cloud upload: how to connect: sftp - ftps - ftp - webdav - s3 - or rclone_conf (uses rclone.conf next to this file). Stored as plain text"],
+  ["cloud_url", "", " cloud upload: the server (sftp/ftps/ftp: host name; webdav: full https address; s3: endpoint - blank for AWS). Stored as plain text"],
+  ["cloud_bucket", "", " cloud upload: folder on the server (s3: bucket/folder; rclone_conf: optionally remote:folder). Stored as plain text"],
+  ["cloud_region", "", " cloud upload: S3 region - if it needs one. Stored as plain text"],
+  ["cloud_user", "", " cloud upload: user name (sftp/ftps/ftp/webdav). Stored as plain text"],
+  ["cloud_password", "", " cloud upload: password (sftp/ftps/ftp/webdav). Stored as plain text: anyone with the SD card can read it - so use a sub-account limited to one folder"],
+  ["cloud_api_key", "", " cloud upload: S3 access key ID. Stored as plain text"],
+  ["cloud_api_secret", "", " cloud upload: S3 secret access key. Stored as plain text"],
+  ["cloud_when", "between_windows", " cloud upload: between_windows (default: while the box waits - dark - between capture windows) or anytime"],
+  ["cloud_interval", "60", " cloud upload: minutes between upload attempts (10-1440). One also starts when each capture window ends"],
+  ["cloud_bwlimit", "", " cloud upload: optional speed limit - e.g. 2M (megabytes per second). Blank for none"],
   ["photo_interval", "2", " time in minutes between each photo. Default is 2 minutes"],
   ["backup_interval", "5", " time in minutes between backups of new photos to the USB drive. Default is 5 (valid 1-999). A final backup always runs at the end of every capture window regardless"],
   ["hardware", "auto", " auto detects a Mothbox Pro PCB or a DIY relay build at boot. Set to pro or diy to force it if detection ever guesses wrong"],
@@ -840,7 +899,9 @@ const HANDLED = new Set(["autoname", "name", "timezone", "autoSystemTime", "manu
   "runtime", "weekday", "hour", "minute", "bat_voltage", "bat_Wh",
   "bat_80perVolts", "bat_20perVolts", "wifissid", "wifipass", "photo_interval",
   "backup_interval", "hardware", "rtc_battery", "second", "device_type",
-  "cloud_service", "cloud_url", "cloud_bucket", "cloud_region", "cloud_user", "cloud_password", "cloud_api_key", "cloud_api_secret", "cloud_token"
+  "hi_power_always", "cloud_upload", "cloud_when", "cloud_interval", "cloud_bwlimit",
+  "cloud_service", "cloud_url", "cloud_bucket", "cloud_region", "cloud_user", "cloud_password", "cloud_api_key", "cloud_api_secret",
+  "cloud_token"   /* an early placeholder, never used: kept in old files, not shown */
 ]);   /* 'second' is not used by the Mothbox -- kept in the file, not shown */
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -1018,7 +1079,7 @@ function escapeHtml(s) {
  * ------------------------------------------------------------------ */
 function buildStaticControls() {
   /* boolean segmented controls */
-  [["f-autoname", "autoname"], ["f-autoSystemTime", "autoSystemTime"]].forEach(([id, key]) => {
+  [["f-autoname", "autoname"], ["f-autoSystemTime", "autoSystemTime"], ["f-hi_power_always", "hi_power_always"], ["f-cloud_upload", "cloud_upload"]].forEach(([id, key]) => {
     const box = $(id);
     box.innerHTML = "";
     [["True", "Yes"], ["False", "No"]].forEach(([val, label]) => {
@@ -1078,7 +1139,8 @@ function buildStaticControls() {
   /* plain text / number fields */
   ["name", "timezone", "manualTime", "runtime", "photo_interval", "backup_interval", "hardware",
    "rtc_battery", "bat_voltage", "bat_Wh", "bat_80perVolts", "bat_20perVolts",
-   "wifissid", "wifipass", "cloud_service", "cloud_url", "cloud_bucket", "cloud_region", "cloud_user", "cloud_password", "cloud_api_key", "cloud_api_secret", "cloud_token"].forEach((key) => {
+   "wifissid", "wifipass", "cloud_service", "cloud_url", "cloud_bucket", "cloud_region", "cloud_user", "cloud_password", "cloud_api_key", "cloud_api_secret",
+   "cloud_when", "cloud_interval", "cloud_bwlimit"].forEach((key) => {
     const el = $("f-" + key);
     if (!el) return;
     el.addEventListener("input", () => { setVal(key, el.value); refresh(el); });
@@ -1174,7 +1236,7 @@ function doRefresh(skipEl) {
   const errors = [];
 
   /* --- booleans --- */
-  [["f-autoname", "autoname"], ["f-autoSystemTime", "autoSystemTime"]].forEach(([id, key]) => {
+  [["f-autoname", "autoname"], ["f-autoSystemTime", "autoSystemTime"], ["f-hi_power_always", "hi_power_always"], ["f-cloud_upload", "cloud_upload"]].forEach(([id, key]) => {
     const v = getVal(key);
     const on = isTrue(v);
     $(id).querySelectorAll("button").forEach((b) => {
@@ -1194,8 +1256,10 @@ function doRefresh(skipEl) {
   setInput("f-backup_interval", getVal("backup_interval"), skipEl);
   setInput("f-hardware", (getVal("hardware") || "auto").toLowerCase(), skipEl);
   setInput("f-rtc_battery", (getVal("rtc_battery") || "").trim().toLowerCase(), skipEl);
-  ["bat_voltage", "bat_Wh", "bat_80perVolts", "bat_20perVolts", "wifissid", "wifipass", "cloud_service", "cloud_url", "cloud_bucket", "cloud_region", "cloud_user", "cloud_password", "cloud_api_key", "cloud_api_secret", "cloud_token"]
+  ["bat_voltage", "bat_Wh", "bat_80perVolts", "bat_20perVolts", "wifissid", "wifipass", "cloud_url", "cloud_bucket", "cloud_region", "cloud_user", "cloud_password", "cloud_api_key", "cloud_api_secret", "cloud_interval", "cloud_bwlimit"]
     .forEach((k) => setInput("f-" + k, getVal(k), skipEl));
+  setCloudSelect("f-cloud_service", cloudService(getVal("cloud_service")), skipEl);
+  setInput("f-cloud_when", getVal("cloud_when").toLowerCase() === "anytime" ? "anytime" : "between_windows", skipEl);
 
   /* --- name --- */
   const name = getVal("name");
@@ -1344,6 +1408,9 @@ function doRefresh(skipEl) {
     fieldErr("e-" + k, /[‘’“”]/.test(v) ? "Contains curly quotes — retype them as plain straight quotes." : "", null);
   });
 
+  /* --- cloud upload --- */
+  cloudErrors().forEach((e) => errors.push(e));
+
   buildOtherFields();
   drawSchedule(wd, hrs, mins, runtime, interval);
 
@@ -1360,6 +1427,91 @@ function doRefresh(skipEl) {
   btn.textContent = errors.length
     ? "Fix " + errors.length + " problem" + (errors.length > 1 ? "s" : "") + " to save"
     : (fileHandle ? "Save into " + loadedName : "Save mothbox_settings.csv");
+}
+
+/* ------------------------------------------------------------------ *
+ * Cloud upload (read on the box by Cloud_Backup.py)
+ * ------------------------------------------------------------------ */
+const CLOUD_SERVICES = ["sftp", "ftps", "ftp", "webdav", "s3", "rclone_conf"];
+/* The same reading as Cloud_Backup.normalize_service, so old free-text values still work. */
+function cloudService(v) {
+  const s = String(v || "").trim().toLowerCase();
+  if (CLOUD_SERVICES.includes(s)) return s;
+  if (["rclone", "rclone.conf", "rclone conf"].includes(s)) return "rclone_conf";
+  if (s.includes("s3")) return "s3";
+  if (["nextcloud", "owncloud"].includes(s)) return "webdav";
+  return s;
+}
+/* A value the list doesn't have (typed by hand, or from the old free-text box) gets its own option. */
+function setCloudSelect(id, value, skipEl) {
+  const el = $(id);
+  if (!el) return;
+  el.querySelectorAll("option[data-extra]").forEach((o) => { if (o.value !== value) o.remove(); });
+  if (value && !CLOUD_SERVICES.includes(value) && !el.querySelector('option[value="' + CSS.escape(value) + '"]')) {
+    const o = document.createElement("option");
+    o.value = value; o.dataset.extra = "1"; o.textContent = value + " (not supported -- choose one of the others)";
+    el.appendChild(o);
+  }
+  setInput(id, value, skipEl);
+}
+/* Which fields each way of connecting uses, and what its server field means. */
+const CLOUD_FIELDS = {
+  sftp:   { fields: ["url", "bucket", "user", "password"], url: "Server (host name)", urlPh: "u12345.your-storagebox.de",
+            hint: "For a Hetzner Storage Box: the host name, user and password Hetzner shows for the (sub-)account." },
+  ftps:   { fields: ["url", "bucket", "user", "password"], url: "Server (host name)", urlPh: "u12345.your-storagebox.de",
+            hint: "FTP with encryption (explicit TLS)." },
+  ftp:    { fields: ["url", "bucket", "user", "password"], url: "Server (host name)", urlPh: "u12345.your-storagebox.de",
+            hint: "Plain FTP sends the password and photos unencrypted. Use SFTP or FTPS if the server has them." },
+  webdav: { fields: ["url", "bucket", "user", "password"], url: "WebDAV address", urlPh: "https://cloud.example.org/remote.php/dav/files/me",
+            hint: "The full https:// address of the WebDAV folder." },
+  s3:     { fields: ["url", "bucket", "region", "api_key", "api_secret"], url: "Endpoint (blank for Amazon S3)", urlPh: "https://s3.eu-central-003.backblazeb2.com",
+            bucket: "Bucket and folder", hint: "The bucket must exist already. Folder is bucket/folder." },
+  rclone_conf: { fields: ["bucket"], bucket: "Folder on the server (or remote:folder)",
+            hint: "Run rclone config on your computer to set up the service, then copy the rclone.conf it makes (rclone config file shows where it is) next to mothbox_settings.csv on the SD card. The first remote in it is used, unless you write remote:folder here." },
+};
+const CLOUD_ALL_FIELDS = ["url", "bucket", "region", "user", "password", "api_key", "api_secret"];
+function cloudErrors() {
+  const on = isTrue(getVal("cloud_upload"));
+  const svc = cloudService(getVal("cloud_service"));
+  const spec = CLOUD_FIELDS[svc];
+  setFieldEnabled($("cloud-fields"), on);
+  $("cloud-fields").querySelectorAll("select").forEach((el) => { el.disabled = !on; });
+  CLOUD_ALL_FIELDS.forEach((f) => {
+    const w = $("wrap-cloud_" + f);
+    if (w) w.hidden = !!spec && !spec.fields.includes(f);
+  });
+  $("lbl-cloud_url").textContent = (spec && spec.url) || "Server";
+  $("f-cloud_url").placeholder = (spec && spec.urlPh) || "";
+  $("lbl-cloud_bucket").textContent = (spec && spec.bucket) || "Folder on the server";
+  $("cloud-service-hint").textContent = spec ? spec.hint : "";
+
+  const errs = [];
+  const need = (field, label) => {
+    const k = "cloud_" + field;
+    const msg = on && spec && spec.fields.includes(field) && !getVal(k) ? label + " is needed to upload." : "";
+    fieldErr("e-" + k, msg, errs);
+  };
+  fieldErr("e-cloud_service", on && !svc ? "Choose how to connect, or switch cloud upload off."
+    : on && !spec ? "“" + svc + "” is not supported: choose one of the others." : "", errs);
+  ["e-cloud_url", "e-cloud_user", "e-cloud_password", "e-cloud_api_key", "e-cloud_api_secret", "e-cloud_bucket"]
+    .forEach((id) => fieldErr(id, "", null));
+  if (svc === "sftp" || svc === "ftps" || svc === "ftp") {
+    need("url", "The server"); need("user", "A user name"); need("password", "The password");
+  } else if (svc === "webdav") {
+    fieldErr("e-cloud_url", on && !/^https?:\/\//i.test(getVal("cloud_url")) ? "Enter the full address, starting with https://" : "", errs);
+  } else if (svc === "s3") {
+    need("api_key", "The access key ID"); need("api_secret", "The secret access key"); need("bucket", "The bucket");
+  }
+
+  const iv = numOf(getVal("cloud_interval"));
+  fieldErr("e-cloud_interval", (hasRow("cloud_interval") || touched.has("cloud_interval")) &&
+    (isNaN(iv) || !Number.isInteger(iv) || iv < 10 || iv > 1440) ? "Enter a whole number of minutes, 10 to 1440." : "", errs);
+  const bw = getVal("cloud_bwlimit");
+  fieldErr("e-cloud_bwlimit", bw && !/^\d+(\.\d+)?[kKmMgG]?$/.test(bw) ? "A number, optionally followed by k, M or G (e.g. 2M)." : "", errs);
+  ["cloud_user", "cloud_password", "cloud_url", "cloud_bucket"].forEach((k) => {
+    if (/[‘’“”]/.test(getVal(k))) fieldErr("e-" + k, "Contains curly quotes — retype them as plain straight quotes.", errs);
+  });
+  return errs;
 }
 
 function rawVal(key) {

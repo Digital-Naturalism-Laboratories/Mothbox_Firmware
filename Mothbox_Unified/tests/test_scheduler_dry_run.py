@@ -42,6 +42,10 @@ SCENARIOS = {
     # HI POWER: same loop, never powers off; leaves when the HI switch goes off
     "hipower": dict(start=(2026, 11, 5, 19, 30), csv={"runtime": "60"}, switches={"HI": 1},
                     hw_reads=[HI_ON] * 100 + [HI_OFF] * 3),
+    # hi_power_always (a DIY has no HI switch): Active alone runs HI POWER; the
+    # HI switch reading 0 must not end it, the Active switch going off does
+    "hipower_setting": dict(start=(2026, 11, 5, 19, 30), csv={"runtime": "60", "hi_power_always": "True"},
+                            hw_reads=[HI_OFF] * 100 + [{"Active": 0, "HI": 0, "Debug": 0}] * 3),
     # a capture hung for 400 s and no photo arrives: kill it, raise PHOTOS STOPPED
     "health": dict(start=(2026, 11, 5, 19, 0), csv={"runtime": "60"},
                    ps="  4242  400 /usr/bin/python /home/pi/Desktop/Mothbox/TakePhoto.py\n"),
@@ -492,6 +496,18 @@ def main():
               {("waiting", epoch(2026, 11, 5, 21, 0), "HI_POW")})
         check("hipower: reboots once the HI switch has read off 3 times",
               (r["ended"], [e[2] for e in find(r, "system", "reboot")]), ("returned", ["sudo reboot"]))
+
+    if want("hipower_setting"):
+        r = run("hipower_setting", verbose)
+        check("hipower_setting: HI switch off, but hi_power_always makes Active run as HI POWER",
+              r["files"]["mode"], "mode=HI_POW")
+        check("hipower_setting: never powers off", find(r, "system", "shutdown -h now"), [])
+        check("hipower_setting: dark between windows, lights again at 21:00",
+              states(r)[:4], ["booting", "active", "waiting", "active"])
+        reboots = find(r, "system", "reboot")
+        check("hipower_setting: the HI switch reading 0 doesn't end it; the Active switch going off does",
+              (r["ended"], [e[2] for e in reboots], reboots[0][0][:8] if reboots else None),
+              ("returned", ["sudo reboot"], "11-05 21"))
 
     if want("health"):
         r = run("health", verbose)

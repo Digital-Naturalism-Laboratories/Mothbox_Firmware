@@ -80,9 +80,17 @@ python3 -c "from PIL import _imagingft" 2>/dev/null \
 python3 -c "import piexif, numpy, psutil, smbus2" 2>/dev/null \
   && ok "python modules (piexif, numpy, psutil, smbus2)" \
   || bad "a required python module is missing -- see the traceback: python3 -c 'import piexif, numpy, psutil, smbus2'"
-for f in mothbox_hw.py mothbox_exif.py Scheduler.py schedule_core.py session.py clock_battery.py capture_yuv.py pisp_mothbox.yaml TakePhoto.py UpdateDisplay.py display_render.py eeprom_safe.py firstboot_guard.py DebugMode.py Party.py graphics/fonts/Galmuri/Galmuri11-Bold.ttf graphics/display/mothbox_logo_bw.png; do
+for f in mothbox_hw.py mothbox_exif.py Scheduler.py Backup_Files.py Cloud_Backup.py schedule_core.py session.py clock_battery.py capture_yuv.py pisp_mothbox.yaml TakePhoto.py UpdateDisplay.py display_render.py eeprom_safe.py firstboot_guard.py DebugMode.py Party.py graphics/fonts/Galmuri/Galmuri11-Bold.ttf graphics/display/mothbox_logo_bw.png; do
   [ -f "/home/pi/Desktop/Mothbox/$f" ] || bad "missing /home/pi/Desktop/Mothbox/$f -- rsync did not complete"
 done
+
+# Cloud upload (Cloud_Backup.py) runs rclone. Optional: without it the box
+# just logs that cloud upload is skipped, so this is a warning, not a failure.
+if command -v rclone >/dev/null 2>&1; then
+  ok "rclone $(rclone version 2>/dev/null | head -1 | awk '{print $2}') (cloud upload)"
+else
+  warn "rclone not installed -- cloud upload will not work. Fix (needs internet): sudo apt install -y rclone"
+fi
 
 # rsync -a copies permissions FROM THE SOURCE, so syncing from a machine where
 # these are not marked executable strips the +x bit here. The firmware now

@@ -19,3 +19,16 @@ photo_interval,2, time in minutes between each photo. Default is 2 minutes
 hardware,auto, auto detects a Mothbox Pro PCB or a DIY relay build at boot. Set to pro or diy to force it if detection ever guesses wrong
 backup_interval,5, time in minutes between backups of new photos to the USB drive. Default is 5 (valid 1-999). A final backup always runs at the end of every capture window regardless
 rtc_battery,rechargeable, the clock coin cell: regular (CR2032 - never charged) or rechargeable (ML2020/ML2032 - charged). Must match the cell in the box: charging a regular cell can make it leak and an uncharged rechargeable one runs down
+hi_power_always,False, True runs the box in HI POWER (wifi on - never sleeps) whenever the Active switch is on - like a Pro with its HI switch on. For a Mothbox DIY which has no HI switch. Uses much more battery
+cloud_upload,False, True uploads new photos to the server below (with rclone). Only in HI POWER mode - and needs wifi or another internet connection
+cloud_service,, cloud upload: how to connect: sftp - ftps - ftp - webdav - s3 - or rclone_conf (uses rclone.conf next to this file). Stored as plain text
+cloud_url,, cloud upload: the server (sftp/ftps/ftp: host name; webdav: full https address; s3: endpoint - blank for AWS). Stored as plain text
+cloud_bucket,, cloud upload: folder on the server (s3: bucket/folder; rclone_conf: optionally remote:folder). Stored as plain text
+cloud_region,, cloud upload: S3 region if it needs one. Stored as plain text
+cloud_user,, cloud upload: user name (sftp/ftps/ftp/webdav). Stored as plain text
+cloud_password,, cloud upload: password (sftp/ftps/ftp/webdav). Stored as plain text: anyone with the SD card can read it - so use a sub-account limited to one folder
+cloud_api_key,, cloud upload: S3 access key ID. Stored as plain text
+cloud_api_secret,, cloud upload: S3 secret access key. Stored as plain text
+cloud_when,between_windows, cloud upload: between_windows (default: while the box waits dark between capture windows) or anytime
+cloud_interval,60, cloud upload: minutes between upload attempts (10-1440). One also starts when each capture window ends
+cloud_bwlimit,, cloud upload: optional speed limit e.g. 2M (megabytes per second). Blank for none

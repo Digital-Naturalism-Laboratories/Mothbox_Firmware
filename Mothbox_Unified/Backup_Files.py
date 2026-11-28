@@ -40,6 +40,17 @@ import session
 if not FINAL_BACKUP and not session.allows(session.BACKUPS):
     sys.exit(0)
 
+#######---- Cloud upload: its own program, with its own lock ------
+# Cloud_Backup.py uploads photos/ with rclone when cloud_upload is on and the
+# box is in HI POWER. It runs in the background so a slow upload never holds
+# up this USB backup; it returns at once when the upload is off or not due.
+try:
+    import Cloud_Backup
+    Cloud_Backup.launch_if_enabled(now=FINAL_BACKUP)
+except Exception as e:
+    Cloud_Backup = None
+    print(f"[Backup] cloud upload not started: {e}")
+
 #######---- One backup at a time ------
 # A cron backup that started a moment before the window closed would
 # otherwise run alongside the final one, both copying and moving the same
@@ -403,6 +414,19 @@ def copy_photos_to_backup(source_folder, target_folder):
             shutil.copy2(inner_source_path, inner_target_path)
             os.chmod(inner_target_path, 0o777)  # Set permissions for copied files
 
+def _copy_unless_same(src, dst, *, follow_symlinks=True):
+    """copy2, but skip a file the USB drive already has (same size and time).
+    Photos can wait in photos/ for the cloud upload; without this they would be
+    copied to the drive again on every backup."""
+    try:
+        s, d = os.stat(src), os.stat(dst)
+        if s.st_size == d.st_size and int(s.st_mtime) == int(d.st_mtime):
+            return dst
+    except OSError:
+        pass
+    return shutil.copy2(src, dst, follow_symlinks=follow_symlinks)
+
+
 def copy_folders_with_files(source_folder, target_folder):
     """
     Copies folders from the source folder to the target folder, 
@@ -423,7 +447,7 @@ def copy_folders_with_files(source_folder, target_folder):
         if os.path.isfile(source_path):
             # If the source is a file, copy it directly
             try:
-                shutil.copy2(source_path, target_path,dirs_exist_ok = True)
+                _copy_unless_same(source_path, target_path)
                 print(f"Copied file: {source_path} to {target_path}")
             except Exception as e:
                 print(f"Error copying {source_path} to {target_path}: {e}")
@@ -434,7 +458,7 @@ def copy_folders_with_files(source_folder, target_folder):
             else:
                 # Copy the directory and its contents
                 try:
-                    shutil.copytree(source_path, target_path,dirs_exist_ok = True)
+                    shutil.copytree(source_path, target_path, dirs_exist_ok=True, copy_function=_copy_unless_same)
                     print(f"Copied folder: {source_path} to {target_path}")
                 except Exception as e:
                     print(f"Error copying folder {source_path} to {target_path}: {e}")
@@ -679,6 +703,14 @@ if __name__ == "__main__":
     print("Desktop Total    Storage: \t" + str(desktop_total/1000000000))
     print("Desktop Available Storage: \t" + str(desktop_available/1000000000))
 
+    # Is the cloud a backup too right now? Then a photo leaves photos/ only
+    # once the server has it as well (see Cloud_Backup.may_leave_photos).
+    try:
+        CLOUD_NEEDED = Cloud_Backup is not None and Cloud_Backup.cloud_needed()
+    except Exception as e:
+        print(f"[Backup] could not check the cloud upload settings ({e})")
+        CLOUD_NEEDED = False
+
     # Find all external drives and rank by available space (descending)
     disks = {}
     for mount_point in os.listdir("/media"):
@@ -700,7 +732,16 @@ if __name__ == "__main__":
             )
     else:
         print("No external drives found.")
-        print("Skipping backup. Not purging photos_backedup because no external storage is available to confirm data is safe.")
+        if CLOUD_NEEDED:
+            # Without a USB drive the cloud is the backup: everything in
+            # photos_backedup/ was confirmed on the server (or on a USB drive
+            # earlier), so the oldest nights may go when the SD card is low.
+            if desktop_available < internal_storage_minimum * 1024**3:
+                print("Low internal storage -- purging oldest backed-up photos (confirmed in the cloud).")
+                purge_oldest_backedup_until_threshold(backedup_photos_folder, internal_storage_minimum * 1024**3)
+            print("Skipping the USB backup. The cloud upload backs up photos/.")
+        else:
+            print("Skipping backup. Not purging photos_backedup because no external storage is available to confirm data is safe.")
         exit(1)
     print("~~~sorted~~~~~~")
 
@@ -747,6 +788,18 @@ if __name__ == "__main__":
                 for difference in differences:
                     print(difference)
             else:
+                if CLOUD_NEEDED:
+                    # Wait for the cloud too -- unless the SD card is low, when
+                    # this USB copy alone is enough to keep the box going.
+                    ledger = Cloud_Backup.read_ledger()
+                    storage_low = desktop_available < x * 1024**3
+                    waiting = {f for f in files_to_move
+                               if not Cloud_Backup.may_leave_photos(
+                                   cloud_needed=True, in_cloud=Cloud_Backup.in_cloud(ledger, photos_folder, f),
+                                   usb_needed=True, on_usb=True, storage_low=storage_low)}
+                    files_to_move = files_to_move - waiting
+                    if waiting:
+                        print(f"{len(waiting)} photo(s) stay in photos/ until the cloud upload confirms them.")
                 move_snapshot_files(files_to_move, photos_folder, backedup_photos_folder)
                 remove_empty_dirs(photos_folder)  # clean up empty dated subfolders left by move
                 print(f"Photos moved to internal backup folder: {backedup_photos_folder}")
