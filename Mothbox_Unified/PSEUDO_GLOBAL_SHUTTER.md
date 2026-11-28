@@ -26,7 +26,9 @@ Every row sees the same 0.8 ms of light, so the photo behaves like a 0.8 ms glob
 
 ## How a photo works
 
-1. **Lights off, light sensor.** The Mothbeams switch off before the camera starts. If `PGS_UseLightSensor` is on, the light sensor is read now, in the dark, with the same reader Diagnostics logs with (`scripts/readLightSensor.py`). Above `PGS_MaxLux`, the Mothbeams come back on and the photo is a normal one. An unreadable sensor is logged, and the photo goes ahead.
+1. **Lights off, light sensor.** The Mothbeams switch off before the camera starts. If `PGS_UseLightSensor` is on, the light reading kept from the last calibration decides. Above `PGS_MaxLux`, the Mothbeams come back on and the photo is a normal one. An unreadable sensor is logged, and the photo goes ahead.
+   - **How the reading is taken.** Ambient light changes little between calibrations, so the sensor is read once per calibration and kept in `pgs_state.txt`. Calibration turns the Mothbeams off for about a second first, so the sensor doesn't measure the box's own light. It uses the same reader Diagnostics logs with (`scripts/readLightSensor.py`).
+   - **When it is read during a photo instead.** Only if there is no reading from the last hour, for example with auto-calibration off.
 2. **Readout.** The camera starts as before. The firmware reads the frame duration while the camera runs at its fastest, and takes that as the readout time R (an upper bound).
 3. **Exposure.** Exposure is R + window (for example 385 + 60 ms). The frame duration is a little more than that.
 4. **Ambient check.** One frame is taken in the dark, with no Mothbeams and no flash. It measures the ambient light. If it is too bright, the firmware takes a normal photo.
@@ -77,7 +79,7 @@ Nothing here has run on hardware yet. The logic is tested against a simulated ro
 4. **LED rise time.** The pulse is 0.8 ms. If the flash LEDs' driver ramps up slowly, photos come out dark until the correction catches up. Better: look at the flash with a photodiode and oscilloscope, or a phone in slow-motion video.
 5. **Brightness.** Check that it settles within 2–3 photos: watch `correction` in `pgs_state.txt`.
 6. **Ambient fallback.** At dusk or under a light, photos should fall back to normal (`too much ambient light`).
-7. **Light sensor (if you turn it on).** Check that the logged lux makes sense: near 0 at night with the Mothbeams off. Then set `PGS_MaxLux` from what you see at the site.
+7. **Light sensor (if you turn it on).** Calibration logs `light sensor, attract lights off: … lux`. Check that it makes sense: near 0 at night. Then set `PGS_MaxLux` from what you see at the site.
 8. **Motion.** Compare insects in flight, or a fan blade, with `PseudoGlobalShutter` on and off.
 9. **Two fallbacks that point at the setup, not the scene.** Each makes the photo fall back to normal:
    - `exposure did not settle`: the sensor would not run the ~0.45 s exposure (a lower cap in this mode).

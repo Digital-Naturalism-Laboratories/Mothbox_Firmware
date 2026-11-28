@@ -581,6 +581,14 @@ def run_calibration():
 
     time.sleep(1)
 
+    # Pseudo-global shutter with PGS_UseLightSensor: read the ambient light once per
+    # calibration (it changes little in between), with the attract lights briefly off so
+    # the sensor does not measure the Mothbox's own light. flashOn() turns them back on.
+    if pseudo_global is not None and mothbox_hw is not None and mothbox_hw.pseudo_global_flash_pin() is not None:
+        _cal_pgs = pseudo_global.read_config(dict(camera_settings))
+        if _cal_pgs["enabled"] and _cal_pgs["use_light_sensor"]:
+            store_ambient_lux(pseudo_global.load_state(PGS_STATE_PATH))
+
     print("!!! Autofocusing !!!")
     afstart = time.time()
     flashOn()
@@ -818,10 +826,26 @@ def measure_reference_frame(state):
           f"{state['target_luma']} (top/mid/bottom {[round(t, 3) for t in thirds]})")
 
 
-def dim_for_pseudo_global():
+def store_ambient_lux(state):
     """
-    Mothbeams off for a pseudo-global photo. With PGS_UseLightSensor on, the Pro's light
-    sensor (read now, in the dark) decides: too bright -> lights back on, normal photo.
+    Read the light sensor with the attract lights off and keep the reading in
+    pgs_state.txt. Called once per calibration (the lights are switched back on by the
+    caller), or by a photo when there is no recent reading. Returns the lux, or None.
+    """
+    mothbox_hw.attract_channels_off()
+    lux = mothbox_hw.read_lux()             # ~1 s, the same reader Diagnostics logs with
+    state["lux"] = lux
+    state["lux_time"] = round(time.time(), 1) if lux is not None else None
+    pseudo_global.save_state(PGS_STATE_PATH, state)
+    print(f"[TakePhoto] light sensor, attract lights off: {lux} lux (kept for the pseudo-global shutter)")
+    return lux
+
+
+def dim_for_pseudo_global(state):
+    """
+    Mothbeams off for a pseudo-global photo. With PGS_UseLightSensor on, the light
+    reading kept from the last calibration decides (taken now only if there is none
+    within the hour): too bright -> lights back on, normal photo.
     Returns (still pseudo-global?, note).
     """
     global _attract_dimmed
@@ -829,14 +853,17 @@ def dim_for_pseudo_global():
     mothbox_hw.attract_channels_off()       # dark before the sensor starts exposing
     if not PGS_CONFIG.get("use_light_sensor"):
         return True, ""
-    lux = mothbox_hw.read_lux()
+    lux = pseudo_global.stored_lux(state, time.time())
+    when = "at calibration"
+    if lux is None:
+        lux, when = store_ambient_lux(state), "now"
     if lux is None:
         return True, "light sensor unreadable -- going ahead (the dark-frame check still applies)"
     if lux > PGS_CONFIG["max_lux"]:
         mothbox_hw.attract_on()
         _attract_dimmed = False
-        return False, f"light sensor reads {lux} lux, above PGS_MaxLux {PGS_CONFIG['max_lux']}"
-    return True, f"light sensor reads {lux} lux"
+        return False, f"light sensor read {lux} lux {when}, above PGS_MaxLux {PGS_CONFIG['max_lux']}"
+    return True, f"light sensor read {lux} lux {when}"
 
 
 def restore_normal_controls():
@@ -960,7 +987,7 @@ def takePhoto_Manual():
     pgs_on, pgs_why, pgs_state = pseudo_global_plan()
     pgs_ref = pgs_on and needs_reference(pgs_state)
     if pgs_on and not pgs_ref:
-        pgs_on, note = dim_for_pseudo_global()     # Mothbeams off before the sensor starts
+        pgs_on, note = dim_for_pseudo_global(pgs_state)     # Mothbeams off before the sensor starts
         pgs_why = note if not pgs_on else (pgs_why + (f"; {note}" if note else ""))
 
     time.sleep(1)
@@ -971,7 +998,7 @@ def takePhoto_Manual():
     if pgs_ref:
         # Calibration pass 2 (lights on, not saved), then dark for the photo itself.
         measure_reference_frame(pgs_state)
-        pgs_on, note = dim_for_pseudo_global()
+        pgs_on, note = dim_for_pseudo_global(pgs_state)
         pgs_why = note if not pgs_on else (pgs_why + (f"; {note}" if note else ""))
     print(f"[TakePhoto] pseudo-global shutter {'ON' if pgs_on else 'off'}: {pgs_why}")
     # Saved photos say how they were taken: pseudo-global, or why not while it is enabled.

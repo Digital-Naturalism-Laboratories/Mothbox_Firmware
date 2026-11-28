@@ -184,8 +184,10 @@ def update_correction(correction, target, measured, ambient):
 def load_state(path):
     """
     pgs_state.txt: correction (brightness factor learned from photos), target_luma
-    (the brightness of a normal frame after the last calibration) and needs_reference
-    (1 = measure a new target before the next pseudo-global photo; set by calibration).
+    (the brightness of a normal frame after the last calibration), needs_reference
+    (1 = measure a new target before the next pseudo-global photo; set by calibration),
+    and lux / lux_time (the light sensor's reading, taken at calibration with the attract
+    lights off, and when).
     """
     state = {"correction": 1.0, "target_luma": None, "needs_reference": "1"}
     try:
@@ -200,7 +202,21 @@ def load_state(path):
     t = _float(state.get("target_luma"), -1)
     state["target_luma"] = t if 0 < t <= 1 else None
     state.pop("sync", None)               # 6.1.4 test builds stored a detected sync; no longer used
+    for k in ("lux", "lux_time"):
+        v = _float(state.get(k), -1)
+        state[k] = v if v >= 0 else None
     return state
+
+
+LUX_MAX_AGE_S = 3600   # a stored light reading older than this is taken again (no calibration ran)
+
+
+def stored_lux(state, now):
+    """The light sensor reading to use, or None when there is none or it is too old."""
+    lux, at = state.get("lux"), state.get("lux_time")
+    if lux is None or at is None or now - at > LUX_MAX_AGE_S:
+        return None
+    return lux
 
 
 def save_state(path, state):

@@ -136,6 +136,16 @@ check("defaults: on, 800 us, sof, light sensor off", (lambda c: (c["enabled"], c
 check("an unknown sync falls back to sof", pg.read_config({"PGS_Sync": "auto"})["sync"], "sof")
 check("light sensor on with a limit", (lambda c: (c["use_light_sensor"], c["max_lux"]))(pg.read_config({"PGS_UseLightSensor": "1", "PGS_MaxLux": "2.5"})), (True, 2.5))
 
+# --- the light reading kept from calibration ---
+check("a recent stored reading is used", pg.stored_lux({"lux": 0.3, "lux_time": 1000.0}, 1000.0 + 1800), 0.3)
+check("an hour-old reading is taken again", pg.stored_lux({"lux": 0.3, "lux_time": 1000.0}, 1000.0 + 3601), None)
+check("no reading yet", pg.stored_lux({"lux": None, "lux_time": None}, 5000.0), None)
+import tempfile
+_tmp = os.path.join(tempfile.mkdtemp(), "pgs_state.txt")
+pg.save_state(_tmp, {"correction": 1.2, "target_luma": 0.4, "needs_reference": "0", "lux": 0.25, "lux_time": 1234.5})
+_st = pg.load_state(_tmp)
+check("state file keeps the reading and its time", (_st["lux"], _st["lux_time"], _st["correction"], _st["needs_reference"]), (0.25, 1234.5, 1.2, "0"))
+
 # --- image measurement (needs numpy; the Pi always has it) ---
 try:
     import numpy as np
